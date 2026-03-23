@@ -8,6 +8,12 @@ CLI tool for sending AI agent task lifecycle notifications to [NotiLens](https:/
 composer global require notilens/notilens
 ```
 
+Or per-project:
+
+```bash
+composer require notilens/notilens
+```
+
 ## Setup
 
 Register your agent with its endpoint and secret from the NotiLens dashboard:
