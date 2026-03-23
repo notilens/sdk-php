@@ -1,0 +1,12 @@
+#!/usr/bin/env php
+<?php
+
+$autoload = dirname(__DIR__) . '/vendor/autoload.php';
+if (!file_exists($autoload)) {
+    fwrite(STDERR, "Error: run 'composer install' first\n");
+    exit(1);
+}
+
+require $autoload;
+
+NotiLens\Cli::run($argv);
