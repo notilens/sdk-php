@@ -2,7 +2,7 @@
   "name": "notilens/notilens",
   "description": "NotiLens CLI — send AI agent task lifecycle notifications",
   "version": "0.1.0",
-  "type": "project",
+  "type": "library",
   "keywords": ["notilens", "ai-agent", "notifications", "monitoring", "cli"],
   "homepage": "https://www.notilens.com",
   "license": "MIT",
