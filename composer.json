@@ -1,7 +1,7 @@
 {
   "name": "notilens/notilens",
-  "description": "NotiLens CLI — send AI agent task lifecycle notifications",
-  "version": "0.1.0",
+  "description": "NotiLens — unified SDK + CLI for AI agent notifications",
+  "version": "0.2.2",
   "type": "library",
   "keywords": ["notilens", "ai-agent", "notifications", "monitoring", "cli"],
   "homepage": "https://www.notilens.com",

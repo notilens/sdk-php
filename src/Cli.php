@@ -71,39 +71,37 @@ class Cli
 
     private static function getEventType(string $event): string
     {
-        return match ($event) {
-            'task.completed', 'response.generated', 'input.approved'         => 'success',
-            'task.failed', 'task.timeout', 'response.failed',
-            'validation.failed'                                               => 'urgent',
-            'task.error', 'task.terminated', 'guardrail.triggered'           => 'important',
-            'task.retrying', 'task.cancelled', 'input.required',
-            'input.rejected'                                                  => 'warning',
-            default                                                           => 'info',
+        return match (true) {
+            in_array($event, ['task.completed', 'ai.response.generated', 'input.approved'])    => 'success',
+            in_array($event, ['task.failed', 'task.timeout', 'ai.response.failed',
+                              'task.error', 'task.terminated'])                                 => 'urgent',
+            in_array($event, ['task.retrying', 'task.cancelled', 'input.required',
+                              'input.rejected'])                                                => 'warning',
+            default                                                                             => 'info',
         };
     }
 
     private static function getActionableDefault(string $event): bool
     {
         return in_array($event, [
-            'task.error', 'task.failed', 'task.timeout', 'task.retrying',
-            'ai.response.failed', 'ai.validation.failed', 'ai.guardrail.triggered',
-            'input.required', 'input.rejected',
+            'task.error', 'task.failed', 'task.timeout', 'task.retrying', 'task.loop',
+            'ai.response.failed', 'input.required', 'input.rejected',
         ], true);
     }
 
     private static function validateType(string $t): string
     {
-        return in_array($t, ['info', 'success', 'warning', 'urgent', 'important'], true) ? $t : '';
+        return in_array($t, ['info', 'success', 'warning', 'urgent'], true) ? $t : '';
     }
 
     // ── Core send ─────────────────────────────────────────────────────────────
 
-    private static function sendNotify(string $event, string $title, string $message, array $flags): void
+    private static function sendNotify(string $event, string $message, array $flags): void
     {
         $conf = Config::getAgent($flags['agent']);
-        if (!$conf || empty($conf['endpoint']) || empty($conf['secret'])) {
-            fwrite(STDERR, "❌ Agent not configured\n");
-            return;
+        if (!$conf || empty($conf['token']) || empty($conf['secret'])) {
+            fwrite(STDERR, "❌ Agent '{$flags['agent']}' not configured. Run: notilens init --agent {$flags['agent']} --token TOKEN --secret SECRET\n");
+            exit(1);
         }
 
         $stateFile = State::getFile($flags['agent'], $flags['task_id']);
@@ -122,6 +120,11 @@ class Cli
             'loop_count'        => $state['loop_count']   ?? 0,
         ], $flags['meta']);
 
+        $taskId = $flags['task_id'];
+        $title  = $taskId
+            ? "{$flags['agent']} | {$taskId} | {$event}"
+            : "{$flags['agent']} | {$event}";
+
         $finalType       = self::validateType($flags['type']) ?: self::getEventType($event);
         $finalActionable = $flags['is_actionable'] !== ''
             ? strtolower($flags['is_actionable']) === 'true'
@@ -133,18 +136,19 @@ class Cli
             'message'      => $message,
             'type'         => $finalType,
             'agent'        => $flags['agent'],
-            'task_id'      => $flags['task_id'],
-            'meta'         => $meta,
+            'task_id'      => $taskId,
+            'is_actionable'=> $finalActionable,
             'image_url'    => $flags['image_url'],
             'open_url'     => $flags['open_url'],
             'download_url' => $flags['download_url'],
             'tags'         => $flags['tags'],
-            'is_actionable'=> $finalActionable,
+            'ts'           => microtime(true),
+            'meta'         => $meta,
         ];
 
         try {
-            Notify::send($conf['endpoint'], $conf['secret'], $payload);
-            usleep(300_000); // 0.3s — matches JS/Python
+            Notify::send($conf['token'], $conf['secret'], $payload);
+            usleep(300_000); // 0.3s flush
         } catch (\Throwable) {
             // silent fail
         }
@@ -165,13 +169,42 @@ class Cli
 
         switch ($command) {
 
-            case 'add-agent':
-                if (count($rest) < 4) {
-                    fwrite(STDERR, "Usage: notilens add-agent <agent> <transport> <endpoint> <secret>\n");
+            case 'init':
+                $token = $secret = $agent = '';
+                for ($i = 0; $i < count($rest); $i++) {
+                    match ($rest[$i]) {
+                        '--agent'  => $agent  = $rest[++$i] ?? '',
+                        '--token'  => $token  = $rest[++$i] ?? '',
+                        '--secret' => $secret = $rest[++$i] ?? '',
+                        default    => null,
+                    };
+                }
+                if (!$agent || !$token || !$secret) {
+                    fwrite(STDERR, "Usage: notilens init --agent <name> --token <token> --secret <secret>\n");
                     exit(1);
                 }
-                Config::addAgent($rest[0], $rest[1], $rest[2], $rest[3]);
-                echo "✔ Agent '{$rest[0]}' added\n";
+                Config::saveAgent($agent, $token, $secret);
+                echo "✔ Agent '{$agent}' saved\n";
+                break;
+
+            case 'agents':
+                $agents = Config::listAgents();
+                if (!$agents) {
+                    echo "No agents configured.\n";
+                } else {
+                    foreach ($agents as $a) echo "  {$a}\n";
+                }
+                break;
+
+            case 'remove-agent':
+                $agent = $rest[0] ?? '';
+                if (!$agent) {
+                    fwrite(STDERR, "Usage: notilens remove-agent <agent>\n");
+                    exit(1);
+                }
+                Config::removeAgent($agent)
+                    ? print("✔ Agent '{$agent}' removed\n")
+                    : fwrite(STDERR, "Agent '{$agent}' not found\n");
                 break;
 
             case 'task.start':
@@ -182,17 +215,20 @@ class Cli
                     'task'        => $flags['task_id'],
                     'start_time'  => (int)(microtime(true) * 1000),
                     'retry_count' => 0,
+                    'loop_count'  => 0,
                 ]);
-                self::sendNotify('task.started', "{$flags['agent']} | {$flags['task_id']} started", 'Task started', $flags);
+                self::sendNotify('task.started', 'Task started', $flags);
                 echo "▶️  Started: {$flags['agent']} | {$flags['task_id']}\n";
                 break;
 
-            case 'task.in_progress':
+            case 'task.progress':
+                $pos       = self::positionalArgs($rest);
+                $msg       = $pos[0] ?? '';
                 $flags     = self::parseFlags($rest);
                 $stateFile = State::getFile($flags['agent'], $flags['task_id']);
                 State::update($stateFile, ['duration_ms' => self::calcDuration($stateFile)]);
-                self::sendNotify('task.in_progress', "{$flags['agent']} | {$flags['task_id']} running", 'Task in progress', $flags);
-                echo "⏳ In Progress: {$flags['agent']} | {$flags['task_id']}\n";
+                self::sendNotify('task.progress', $msg, $flags);
+                echo "⏳ Progress: {$flags['agent']} | {$flags['task_id']}\n";
                 break;
 
             case 'task.stop':
@@ -200,7 +236,7 @@ class Cli
                 $stateFile = State::getFile($flags['agent'], $flags['task_id']);
                 $dur       = self::calcDuration($stateFile);
                 State::update($stateFile, ['duration_ms' => $dur]);
-                self::sendNotify('task.stopped', "{$flags['agent']} | {$flags['task_id']} stopped", 'Task stopped', $flags);
+                self::sendNotify('task.stopped', 'Task stopped', $flags);
                 echo "⏹  Stopped: {$flags['agent']} | {$flags['task_id']} ({$dur} ms)\n";
                 break;
 
@@ -209,10 +245,10 @@ class Cli
                 $stateFile = State::getFile($flags['agent'], $flags['task_id']);
                 $state     = State::read($stateFile);
                 State::update($stateFile, [
-                    'duration_ms'  => self::calcDuration($stateFile),
-                    'retry_count'  => ($state['retry_count'] ?? 0) + 1,
+                    'duration_ms' => self::calcDuration($stateFile),
+                    'retry_count' => ($state['retry_count'] ?? 0) + 1,
                 ]);
-                self::sendNotify('task.retrying', "{$flags['agent']} | {$flags['task_id']} retry", 'Retrying task', $flags);
+                self::sendNotify('task.retrying', 'Retrying task', $flags);
                 echo "🔁 Retry: {$flags['agent']} | {$flags['task_id']}\n";
                 break;
 
@@ -224,7 +260,7 @@ class Cli
                 $state     = State::read($stateFile);
                 $loopCount = ($state['loop_count'] ?? 0) + 1;
                 State::update($stateFile, ['duration_ms' => self::calcDuration($stateFile), 'loop_count' => $loopCount]);
-                self::sendNotify('task.loop', "{$flags['agent']} | {$flags['task_id']} loop #{$loopCount}", $msg, $flags);
+                self::sendNotify('task.loop', $msg, $flags);
                 echo "🔄 Loop ({$loopCount}): {$flags['agent']} | {$flags['task_id']}\n";
                 break;
 
@@ -234,7 +270,7 @@ class Cli
                 $flags     = self::parseFlags($rest);
                 $stateFile = State::getFile($flags['agent'], $flags['task_id']);
                 State::update($stateFile, ['duration_ms' => self::calcDuration($stateFile), 'last_error' => $msg]);
-                self::sendNotify('task.error', "{$flags['agent']} | {$flags['task_id']} error", $msg, $flags);
+                self::sendNotify('task.error', $msg, $flags);
                 fwrite(STDERR, "❌ Error: {$msg}\n");
                 break;
 
@@ -243,8 +279,8 @@ class Cli
                 $msg       = $pos[0] ?? '';
                 $flags     = self::parseFlags($rest);
                 $stateFile = State::getFile($flags['agent'], $flags['task_id']);
-                State::update($stateFile, ['duration_ms' => self::calcDuration($stateFile), 'failed' => true]);
-                self::sendNotify('task.failed', "{$flags['agent']} | {$flags['task_id']} failed", $msg, $flags);
+                State::update($stateFile, ['duration_ms' => self::calcDuration($stateFile)]);
+                self::sendNotify('task.failed', $msg, $flags);
                 State::delete($stateFile);
                 echo "💥 Failed: {$flags['agent']} | {$flags['task_id']}\n";
                 break;
@@ -254,8 +290,8 @@ class Cli
                 $msg       = $pos[0] ?? '';
                 $flags     = self::parseFlags($rest);
                 $stateFile = State::getFile($flags['agent'], $flags['task_id']);
-                State::update($stateFile, ['duration_ms' => self::calcDuration($stateFile), 'timeout' => true]);
-                self::sendNotify('task.timeout', "{$flags['agent']} | {$flags['task_id']} timeout", $msg, $flags);
+                State::update($stateFile, ['duration_ms' => self::calcDuration($stateFile)]);
+                self::sendNotify('task.timeout', $msg, $flags);
                 State::delete($stateFile);
                 echo "⏰ Timeout: {$flags['agent']} | {$flags['task_id']}\n";
                 break;
@@ -265,8 +301,8 @@ class Cli
                 $msg       = $pos[0] ?? '';
                 $flags     = self::parseFlags($rest);
                 $stateFile = State::getFile($flags['agent'], $flags['task_id']);
-                State::update($stateFile, ['duration_ms' => self::calcDuration($stateFile), 'cancelled' => true]);
-                self::sendNotify('task.cancelled', "{$flags['agent']} | {$flags['task_id']} cancelled", $msg, $flags);
+                State::update($stateFile, ['duration_ms' => self::calcDuration($stateFile)]);
+                self::sendNotify('task.cancelled', $msg, $flags);
                 State::delete($stateFile);
                 echo "🚫 Cancelled: {$flags['agent']} | {$flags['task_id']}\n";
                 break;
@@ -276,8 +312,8 @@ class Cli
                 $msg       = $pos[0] ?? '';
                 $flags     = self::parseFlags($rest);
                 $stateFile = State::getFile($flags['agent'], $flags['task_id']);
-                State::update($stateFile, ['duration_ms' => self::calcDuration($stateFile), 'terminated' => true]);
-                self::sendNotify('task.terminated', "{$flags['agent']} | {$flags['task_id']} terminated", $msg, $flags);
+                State::update($stateFile, ['duration_ms' => self::calcDuration($stateFile)]);
+                self::sendNotify('task.terminated', $msg, $flags);
                 State::delete($stateFile);
                 echo "⚠️  Terminated: {$flags['agent']} | {$flags['task_id']}\n";
                 break;
@@ -288,18 +324,18 @@ class Cli
                 $flags     = self::parseFlags($rest);
                 $stateFile = State::getFile($flags['agent'], $flags['task_id']);
                 State::update($stateFile, ['duration_ms' => self::calcDuration($stateFile)]);
-                self::sendNotify('task.completed', "{$flags['agent']} | {$flags['task_id']} workflow", $msg, $flags);
+                self::sendNotify('task.completed', $msg, $flags);
                 State::delete($stateFile);
                 echo "✅ Completed: {$flags['agent']} | {$flags['task_id']}\n";
                 break;
 
             case 'set.metrics':
-                $pos       = self::positionalArgs($rest);
-                $flags     = self::parseFlags($rest);
-                $prompt    = (int)($pos[0] ?? 0);
-                $completion= (int)($pos[1] ?? 0);
-                $conf      = (float)($pos[2] ?? 0);
-                $stateFile = State::getFile($flags['agent'], $flags['task_id']);
+                $pos        = self::positionalArgs($rest);
+                $flags      = self::parseFlags($rest);
+                $prompt     = (int)($pos[0] ?? 0);
+                $completion = (int)($pos[1] ?? 0);
+                $conf       = (float)($pos[2] ?? 0);
+                $stateFile  = State::getFile($flags['agent'], $flags['task_id']);
                 State::update($stateFile, ['prompt_tokens' => $prompt, 'completion_tokens' => $completion]);
                 if ($conf) $flags['confidence_score'] = $conf;
                 echo "📊 Metrics set: tokens({$prompt}/{$completion}) confidence({$conf})\n";
@@ -309,35 +345,35 @@ class Cli
                 $pos   = self::positionalArgs($rest);
                 $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
-                self::sendNotify('ai.response.generated', "{$flags['agent']} | {$flags['task_id']} response", $msg, $flags);
+                self::sendNotify('ai.response.generated', $msg, $flags);
                 break;
 
             case 'ai.response.fail':
                 $pos   = self::positionalArgs($rest);
                 $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
-                self::sendNotify('ai.response.failed', "{$flags['agent']} | {$flags['task_id']} response failed", $msg, $flags);
+                self::sendNotify('ai.response.failed', $msg, $flags);
                 break;
 
             case 'input.required':
                 $pos   = self::positionalArgs($rest);
                 $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
-                self::sendNotify('input.required', "{$flags['agent']} | {$flags['task_id']} input required", $msg, $flags);
+                self::sendNotify('input.required', $msg, $flags);
                 break;
 
             case 'input.approve':
                 $pos   = self::positionalArgs($rest);
                 $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
-                self::sendNotify('input.approved', "{$flags['agent']} | {$flags['task_id']} input approved", $msg, $flags);
+                self::sendNotify('input.approved', $msg, $flags);
                 break;
 
             case 'input.reject':
                 $pos   = self::positionalArgs($rest);
                 $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
-                self::sendNotify('input.rejected', "{$flags['agent']} | {$flags['task_id']} input rejected", $msg, $flags);
+                self::sendNotify('input.rejected', $msg, $flags);
                 break;
 
             case 'emit':
@@ -347,7 +383,7 @@ class Cli
                 $flags     = self::parseFlags(array_slice($rest, 2));
                 $stateFile = State::getFile($flags['agent'], $flags['task_id']);
                 State::update($stateFile, ['duration_ms' => self::calcDuration($stateFile)]);
-                self::sendNotify($event, "{$flags['agent']} | {$flags['task_id']} {$event}", $msg, $flags);
+                self::sendNotify($event, $msg, $flags);
                 echo "📡 Event emitted: {$event}\n";
                 break;
 
@@ -370,37 +406,41 @@ class Cli
     {
         echo <<<USAGE
 Usage:
-  notilens add-agent <agent> <transport> <endpoint> <secret>
+  notilens init --agent <name> --token <token> --secret <secret>
+  notilens agents
+  notilens remove-agent <agent>
 
-Core Commands:
-  notilens task.start --agent <agent> [--task <id>]
-  notilens task.in_progress --agent <agent> [--task <id>]
-  notilens task.stop --agent <agent> [--task <id>]
-  notilens task.retry --agent <agent> [--task <id>]
-  notilens task.loop "msg" --agent <agent>
-  notilens task.error "msg" --agent <agent> [--task <id>]
-  notilens task.fail "msg" --agent <agent> [--task <id>]
-  notilens task.timeout "msg" --agent <agent> [--task <id>]
-  notilens task.cancel "msg" --agent <agent> [--task <id>]
+Task Lifecycle:
+  notilens task.start    --agent <agent> [--task <id>]
+  notilens task.progress "msg"  --agent <agent> [--task <id>]
+  notilens task.loop     "msg"  --agent <agent> [--task <id>]
+  notilens task.retry           --agent <agent> [--task <id>]
+  notilens task.stop            --agent <agent> [--task <id>]
+  notilens task.error    "msg"  --agent <agent> [--task <id>]
+  notilens task.fail     "msg"  --agent <agent> [--task <id>]
+  notilens task.timeout  "msg"  --agent <agent> [--task <id>]
+  notilens task.cancel   "msg"  --agent <agent> [--task <id>]
   notilens task.terminate "msg" --agent <agent> [--task <id>]
-  notilens task.complete "msg" --agent <agent> [--task <id>]
-  notilens ai.response.generate "msg" --agent <agent>
-  notilens ai.response.fail "msg" --agent <agent>
-  notilens input.required "msg" --agent <agent>
-  notilens input.approve "msg" --agent <agent>
-  notilens input.reject "msg" --agent <agent>
+  notilens task.complete "msg"  --agent <agent> [--task <id>]
 
-Generic Event:
+AI / Input:
+  notilens ai.response.generate "msg" --agent <agent> [--task <id>]
+  notilens ai.response.fail     "msg" --agent <agent> [--task <id>]
+  notilens input.required       "msg" --agent <agent> [--task <id>]
+  notilens input.approve        "msg" --agent <agent> [--task <id>]
+  notilens input.reject         "msg" --agent <agent> [--task <id>]
+
+Generic:
   notilens emit <event> "msg" --agent <agent>
 
 Metrics:
   notilens set.metrics <prompt_tokens> <completion_tokens> [confidence] --agent <agent> [--task <id>]
 
 Options:
-  --agent <agent>
+  --agent <name>
   --task <id>
-  --type success|warning|urgent|important|info
-  --meta key=value            (repeatable)
+  --type success|warning|urgent|info
+  --meta key=value        (repeatable)
   --image_url <url>
   --open_url <url>
   --download_url <url>

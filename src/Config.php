@@ -27,10 +27,24 @@ class Config
         return self::read()[$agent] ?? null;
     }
 
-    public static function addAgent(string $agent, string $transport, string $endpoint, string $secret): void
+    public static function saveAgent(string $agent, string $token, string $secret): void
     {
         $config = self::read();
-        $config[$agent] = ['transport' => $transport, 'endpoint' => $endpoint, 'secret' => $secret];
+        $config[$agent] = ['token' => $token, 'secret' => $secret];
         self::write($config);
+    }
+
+    public static function removeAgent(string $agent): bool
+    {
+        $config = self::read();
+        if (!isset($config[$agent])) return false;
+        unset($config[$agent]);
+        self::write($config);
+        return true;
+    }
+
+    public static function listAgents(): array
+    {
+        return array_keys(self::read());
     }
 }

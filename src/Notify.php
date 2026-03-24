@@ -4,17 +4,19 @@ namespace NotiLens;
 
 class Notify
 {
+    private const WEBHOOK_URL = 'https://hook.notilens.com/webhook/%s/send';
     private const MAX_RETRIES = 2;
     private const TIMEOUT_S   = 10;
 
-    public static function send(string $endpoint, string $secret, array $payload): void
+    public static function send(string $token, string $secret, array $payload): void
     {
-        $body    = json_encode($payload);
-        $version = self::version();
-        $headers = implode("\r\n", [
+        $endpoint = sprintf(self::WEBHOOK_URL, $token);
+        $body     = json_encode($payload);
+        $version  = self::version();
+        $headers  = implode("\r\n", [
             'Content-Type: application/json',
             "X-NOTILENS-KEY: {$secret}",
-            "User-Agent: NotiLens-CLI/{$version}",
+            "User-Agent: NotiLens-PHP/{$version}",
             'Content-Length: ' . strlen($body),
         ]);
 
