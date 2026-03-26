@@ -2,10 +2,9 @@
 
 namespace NotiLens;
 
-class NotiLensAgent
+class NotiLens
 {
     private string $agent;
-    private Notify $notify;
     private string $token;
     private string $secret;
 
@@ -77,7 +76,7 @@ class NotiLensAgent
         $this->send('task.loop', $message, taskId: $taskId);
     }
 
-    public function taskRetry(string $taskId): void
+    public function taskRetry(string $taskId): void  // fires task.retry
     {
         $sf    = State::getFile($this->agent, $taskId);
         $state = State::read($sf);
@@ -85,7 +84,7 @@ class NotiLensAgent
             'duration_ms' => $this->calcDuration($sf),
             'retry_count' => ($state['retry_count'] ?? 0) + 1,
         ]);
-        $this->send('task.retrying', 'Retrying task', taskId: $taskId);
+        $this->send('task.retry', 'Retrying task', taskId: $taskId);
     }
 
     public function taskError(string $message, string $taskId): void
@@ -159,16 +158,16 @@ class NotiLensAgent
         $this->send('input.rejected', $message, taskId: $taskId);
     }
 
-    // ── AI response events ────────────────────────────────────────────────────
+    // ── Output events ─────────────────────────────────────────────────────────
 
-    public function aiResponseGenerated(string $message, string $taskId): void
+    public function outputGenerated(string $message, string $taskId): void
     {
-        $this->send('ai.response.generated', $message, taskId: $taskId);
+        $this->send('output.generated', $message, taskId: $taskId);
     }
 
-    public function aiResponseFailed(string $message, string $taskId): void
+    public function outputFailed(string $message, string $taskId): void
     {
-        $this->send('ai.response.failed', $message, taskId: $taskId);
+        $this->send('output.failed', $message, taskId: $taskId);
     }
 
     // ── Generic emit ──────────────────────────────────────────────────────────
@@ -181,12 +180,12 @@ class NotiLensAgent
     // ── Internals ─────────────────────────────────────────────────────────────
 
     private static array $successEvents = [
-        'task.completed', 'ai.response.generated', 'input.approved',
+        'task.completed', 'output.generated', 'input.approved',
     ];
 
     private static array $actionableEvents = [
-        'task.error', 'task.failed', 'task.timeout', 'task.retrying', 'task.loop',
-        'ai.response.failed', 'input.required', 'input.rejected',
+        'task.error', 'task.failed', 'task.timeout', 'task.retry', 'task.loop',
+        'output.failed', 'input.required', 'input.rejected',
     ];
 
     private static array $levelToType = [
@@ -209,15 +208,28 @@ class NotiLensAgent
             : (self::$levelToType[$level] ?? 'info');
 
         // urgent overrides for specific events
-        if (in_array($event, ['task.failed', 'task.timeout', 'task.error', 'task.terminated', 'ai.response.failed'], true)) {
+        if (in_array($event, ['task.failed', 'task.timeout', 'task.error', 'task.terminated', 'output.failed'], true)) {
             $ntype = 'urgent';
-        } elseif (in_array($event, ['task.retrying', 'task.cancelled', 'input.required', 'input.rejected'], true)) {
+        } elseif (in_array($event, ['task.retry', 'task.cancelled', 'input.required', 'input.rejected'], true)) {
             $ntype = 'warning';
         }
 
         $title = $taskId
             ? "{$this->agent} | {$taskId} | {$event}"
             : "{$this->agent} | {$event}";
+
+        // Pull duration from state if available
+        $duration = 0;
+        if ($taskId) {
+            $sf       = State::getFile($this->agent, $taskId);
+            $duration = State::read($sf)['duration_ms'] ?? 0;
+        }
+
+        $extraMeta = array_diff_key($meta, array_flip(['image_url', 'open_url', 'download_url', 'tags']));
+        $extraMeta['agent'] = $this->agent;
+        if ($duration > 0) {
+            $extraMeta['duration_ms'] = $duration;
+        }
 
         $payload = [
             'event'         => $event,
@@ -232,7 +244,7 @@ class NotiLensAgent
             'download_url'  => $meta['download_url'] ?? '',
             'tags'          => $meta['tags']         ?? '',
             'ts'            => microtime(true),
-            'meta'          => array_diff_key($meta, array_flip(['image_url', 'open_url', 'download_url', 'tags'])),
+            'meta'          => $extraMeta,
         ];
 
         try {

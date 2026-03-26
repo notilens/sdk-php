@@ -156,18 +156,18 @@ Use the SDK to send notifications directly from your PHP code.
 ## 1. Setup
 
 ```php
-use NotiLens\NotiLensAgent;
+use NotiLens\NotiLens;
 
 // Option A — pass credentials directly (required on first use)
-$agent = NotiLensAgent::init('my-agent', token: 'YOUR_TOKEN', secret: 'YOUR_SECRET');
+$agent = NotiLens::init('my-agent', token: 'YOUR_TOKEN', secret: 'YOUR_SECRET');
 
 // Option B — read from environment variables
 // NOTILENS_TOKEN=xxx NOTILENS_SECRET=yyy
-$agent = NotiLensAgent::init('my-agent');
+$agent = NotiLens::init('my-agent');
 
 // Option C — read from saved CLI config (~/.notilens_config.json)
 // after running: notilens init --agent my-agent --token TOKEN --secret SECRET
-$agent = NotiLensAgent::init('my-agent');
+$agent = NotiLens::init('my-agent');
 ```
 
 ## 2. Task Lifecycle
@@ -214,9 +214,9 @@ $agent->emit('user.registered', 'New signup', meta: ['plan' => 'pro']);
 ## Full Example
 
 ```php
-use NotiLens\NotiLensAgent;
+use NotiLens\NotiLens;
 
-$agent  = NotiLensAgent::init('summarizer', token: 'TOKEN', secret: 'SECRET');
+$agent  = NotiLens::init('summarizer', token: 'TOKEN', secret: 'SECRET');
 $taskId = $agent->taskStart();
 
 try {
