@@ -19,31 +19,29 @@ class Cli
     private static function parseFlags(array $args): array
     {
         $flags = [
-            'agent'            => '',
-            'task_id'          => '',
-            'type'             => '',
-            'meta'             => [],
-            'image_url'        => '',
-            'open_url'         => '',
-            'download_url'     => '',
-            'tags'             => '',
-            'is_actionable'    => '',
-            'confidence_score' => 0.0,
+            'agent'         => '',
+            'task_id'       => '',
+            'type'          => '',
+            'meta'          => [],
+            'image_url'     => '',
+            'open_url'      => '',
+            'download_url'  => '',
+            'tags'          => '',
+            'is_actionable' => '',
         ];
 
         $i = 0;
         $count = count($args);
         while ($i < $count) {
             switch ($args[$i]) {
-                case '--agent':        $flags['agent']            = $args[++$i] ?? ''; break;
-                case '--task':         $flags['task_id']          = $args[++$i] ?? ''; break;
-                case '--type':         $flags['type']             = $args[++$i] ?? ''; break;
-                case '--image_url':    $flags['image_url']        = $args[++$i] ?? ''; break;
-                case '--open_url':     $flags['open_url']         = $args[++$i] ?? ''; break;
-                case '--download_url': $flags['download_url']     = $args[++$i] ?? ''; break;
-                case '--tags':         $flags['tags']             = $args[++$i] ?? ''; break;
-                case '--is_actionable':$flags['is_actionable']    = $args[++$i] ?? ''; break;
-                case '--confidence':   $flags['confidence_score'] = (float)($args[++$i] ?? 0); break;
+                case '--agent':        $flags['agent']         = $args[++$i] ?? ''; break;
+                case '--task':         $flags['task_id']       = $args[++$i] ?? ''; break;
+                case '--type':         $flags['type']          = $args[++$i] ?? ''; break;
+                case '--image_url':    $flags['image_url']     = $args[++$i] ?? ''; break;
+                case '--open_url':     $flags['open_url']      = $args[++$i] ?? ''; break;
+                case '--download_url': $flags['download_url']  = $args[++$i] ?? ''; break;
+                case '--tags':         $flags['tags']          = $args[++$i] ?? ''; break;
+                case '--is_actionable':$flags['is_actionable'] = $args[++$i] ?? ''; break;
                 case '--meta':
                     $kv = $args[++$i] ?? '';
                     $eq = strpos($kv, '=');
@@ -72,20 +70,20 @@ class Cli
     private static function getEventType(string $event): string
     {
         return match (true) {
-            in_array($event, ['task.completed', 'ai.response.generated', 'input.approved'])    => 'success',
-            in_array($event, ['task.failed', 'task.timeout', 'ai.response.failed',
-                              'task.error', 'task.terminated'])                                 => 'urgent',
-            in_array($event, ['task.retrying', 'task.cancelled', 'input.required',
-                              'input.rejected'])                                                => 'warning',
-            default                                                                             => 'info',
+            in_array($event, ['task.completed', 'output.generated', 'input.approved'])  => 'success',
+            in_array($event, ['task.failed', 'task.timeout', 'output.failed',
+                              'task.error', 'task.terminated'])                          => 'urgent',
+            in_array($event, ['task.retry', 'task.cancelled', 'input.required',
+                              'input.rejected'])                                         => 'warning',
+            default                                                                      => 'info',
         };
     }
 
     private static function getActionableDefault(string $event): bool
     {
         return in_array($event, [
-            'task.error', 'task.failed', 'task.timeout', 'task.retrying', 'task.loop',
-            'ai.response.failed', 'input.required', 'input.rejected',
+            'task.error', 'task.failed', 'task.timeout', 'task.retry', 'task.loop',
+            'output.failed', 'input.required', 'input.rejected',
         ], true);
     }
 
@@ -107,18 +105,11 @@ class Cli
         $stateFile = State::getFile($flags['agent'], $flags['task_id']);
         $state     = State::read($stateFile);
 
-        $promptTokens     = $state['prompt_tokens']     ?? 0;
-        $completionTokens = $state['completion_tokens'] ?? 0;
+        $stateMeta = ['agent' => $flags['agent']];
+        if (($state['duration_ms'] ?? 0) > 0) $stateMeta['duration_ms'] = $state['duration_ms'];
+        if (!empty($state['metrics']))          $stateMeta['metrics']     = $state['metrics'];
 
-        $meta = array_merge([
-            'duration_ms'       => $state['duration_ms']  ?? 0,
-            'prompt_tokens'     => $promptTokens,
-            'completion_tokens' => $completionTokens,
-            'total_tokens'      => $promptTokens + $completionTokens,
-            'retry_count'       => $state['retry_count']  ?? 0,
-            'confidence_score'  => $flags['confidence_score'],
-            'loop_count'        => $state['loop_count']   ?? 0,
-        ], $flags['meta']);
+        $meta = array_merge($stateMeta, $flags['meta']);
 
         $taskId = $flags['task_id'];
         $title  = $taskId
@@ -248,7 +239,7 @@ class Cli
                     'duration_ms' => self::calcDuration($stateFile),
                     'retry_count' => ($state['retry_count'] ?? 0) + 1,
                 ]);
-                self::sendNotify('task.retrying', 'Retrying task', $flags);
+                self::sendNotify('task.retry', 'Retrying task', $flags);
                 echo "🔁 Retry: {$flags['agent']} | {$flags['task_id']}\n";
                 break;
 
@@ -329,30 +320,60 @@ class Cli
                 echo "✅ Completed: {$flags['agent']} | {$flags['task_id']}\n";
                 break;
 
-            case 'set.metrics':
-                $pos        = self::positionalArgs($rest);
-                $flags      = self::parseFlags($rest);
-                $prompt     = (int)($pos[0] ?? 0);
-                $completion = (int)($pos[1] ?? 0);
-                $conf       = (float)($pos[2] ?? 0);
-                $stateFile  = State::getFile($flags['agent'], $flags['task_id']);
-                State::update($stateFile, ['prompt_tokens' => $prompt, 'completion_tokens' => $completion]);
-                if ($conf) $flags['confidence_score'] = $conf;
-                echo "📊 Metrics set: tokens({$prompt}/{$completion}) confidence({$conf})\n";
+            case 'metric':
+                // notilens metric key=value [key=value ...] --agent <agent> --task <id>
+                $pos       = self::positionalArgs($rest);
+                $flags     = self::parseFlags($rest);
+                $stateFile = State::getFile($flags['agent'], $flags['task_id']);
+                $state     = State::read($stateFile);
+                $metrics   = $state['metrics'] ?? [];
+                foreach ($pos as $kv) {
+                    $eq = strpos($kv, '=');
+                    if ($eq === false) continue;
+                    $k = substr($kv, 0, $eq);
+                    $v = substr($kv, $eq + 1);
+                    $v = is_numeric($v) ? $v + 0 : $v;
+                    // accumulate numeric, replace strings
+                    if (is_numeric($v) && isset($metrics[$k]) && is_numeric($metrics[$k])) {
+                        $metrics[$k] += $v;
+                    } else {
+                        $metrics[$k] = $v;
+                    }
+                }
+                State::update($stateFile, ['metrics' => $metrics]);
+                echo "📊 Metrics: " . implode(', ', array_map(fn($k, $v) => "{$k}={$v}", array_keys($metrics), $metrics)) . "\n";
                 break;
 
-            case 'ai.response.generate':
+            case 'metric.reset':
+                // notilens metric.reset [key] --agent <agent> --task <id>
+                $pos       = self::positionalArgs($rest);
+                $flags     = self::parseFlags($rest);
+                $stateFile = State::getFile($flags['agent'], $flags['task_id']);
+                $state     = State::read($stateFile);
+                $key       = $pos[0] ?? null;
+                if ($key) {
+                    $metrics = $state['metrics'] ?? [];
+                    unset($metrics[$key]);
+                    State::update($stateFile, ['metrics' => $metrics]);
+                    echo "📊 Metric '{$key}' reset\n";
+                } else {
+                    State::update($stateFile, ['metrics' => []]);
+                    echo "📊 All metrics reset\n";
+                }
+                break;
+
+            case 'output.generate':
                 $pos   = self::positionalArgs($rest);
                 $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
-                self::sendNotify('ai.response.generated', $msg, $flags);
+                self::sendNotify('output.generated', $msg, $flags);
                 break;
 
-            case 'ai.response.fail':
+            case 'output.fail':
                 $pos   = self::positionalArgs($rest);
                 $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
-                self::sendNotify('ai.response.failed', $msg, $flags);
+                self::sendNotify('output.failed', $msg, $flags);
                 break;
 
             case 'input.required':
@@ -411,42 +432,43 @@ Usage:
   notilens remove-agent <agent>
 
 Task Lifecycle:
-  notilens task.start    --agent <agent> [--task <id>]
-  notilens task.progress "msg"  --agent <agent> [--task <id>]
-  notilens task.loop     "msg"  --agent <agent> [--task <id>]
+  notilens task.start     --agent <agent> [--task <id>]
+  notilens task.progress  "msg" --agent <agent> [--task <id>]
+  notilens task.loop      "msg" --agent <agent> [--task <id>]
   notilens task.retry           --agent <agent> [--task <id>]
   notilens task.stop            --agent <agent> [--task <id>]
-  notilens task.error    "msg"  --agent <agent> [--task <id>]
-  notilens task.fail     "msg"  --agent <agent> [--task <id>]
-  notilens task.timeout  "msg"  --agent <agent> [--task <id>]
-  notilens task.cancel   "msg"  --agent <agent> [--task <id>]
+  notilens task.error     "msg" --agent <agent> [--task <id>]
+  notilens task.fail      "msg" --agent <agent> [--task <id>]
+  notilens task.timeout   "msg" --agent <agent> [--task <id>]
+  notilens task.cancel    "msg" --agent <agent> [--task <id>]
   notilens task.terminate "msg" --agent <agent> [--task <id>]
-  notilens task.complete "msg"  --agent <agent> [--task <id>]
+  notilens task.complete  "msg" --agent <agent> [--task <id>]
 
-AI / Input:
-  notilens ai.response.generate "msg" --agent <agent> [--task <id>]
-  notilens ai.response.fail     "msg" --agent <agent> [--task <id>]
-  notilens input.required       "msg" --agent <agent> [--task <id>]
-  notilens input.approve        "msg" --agent <agent> [--task <id>]
-  notilens input.reject         "msg" --agent <agent> [--task <id>]
+Output / Input:
+  notilens output.generate "msg" --agent <agent> [--task <id>]
+  notilens output.fail     "msg" --agent <agent> [--task <id>]
+  notilens input.required  "msg" --agent <agent> [--task <id>]
+  notilens input.approve   "msg" --agent <agent> [--task <id>]
+  notilens input.reject    "msg" --agent <agent> [--task <id>]
+
+Metrics (accumulated, auto-sent with every notification):
+  notilens metric       tokens=512 cost=0.003 --agent <agent> --task <id>
+  notilens metric.reset tokens               --agent <agent> --task <id>
+  notilens metric.reset                      --agent <agent> --task <id>
 
 Generic:
   notilens emit <event> "msg" --agent <agent>
-
-Metrics:
-  notilens set.metrics <prompt_tokens> <completion_tokens> [confidence] --agent <agent> [--task <id>]
 
 Options:
   --agent <name>
   --task <id>
   --type success|warning|urgent|info
-  --meta key=value        (repeatable)
+  --meta key=value   (repeatable)
   --image_url <url>
   --open_url <url>
   --download_url <url>
   --tags "tag1,tag2"
   --is_actionable true|false
-  --confidence <0-1>
 
 Other:
   notilens version

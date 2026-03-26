@@ -95,9 +95,14 @@ notilens emit disk.full "Only 1GB remaining" --agent my-agent --type warning
 Pass any key=value pairs — numeric values accumulate across calls:
 
 ```bash
-notilens metric tokens=512   --agent my-agent --task job_001
-notilens metric cost=0.003   --agent my-agent --task job_001
-notilens metric records=1500 --agent my-agent --task job_001
+notilens metric tokens=512 cost=0.003 --agent my-agent --task job_001
+notilens metric records=1500          --agent my-agent --task job_001
+
+# Reset one metric
+notilens metric.reset tokens --agent my-agent --task job_001
+
+# Reset all metrics
+notilens metric.reset --agent my-agent --task job_001
 ```
 
 ---
