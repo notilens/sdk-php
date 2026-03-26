@@ -147,8 +147,8 @@ class Cli
 
     private static function calcDuration(string $stateFile): int
     {
-        $state = State::read($stateFile);
-        return (int)(microtime(true) * 1000) - ($state['start_time'] ?? 0);
+        $start = State::read($stateFile)['start_time'] ?? 0;
+        return $start ? (int)(microtime(true) * 1000) - $start : 0;
     }
 
     // ── Commands ──────────────────────────────────────────────────────────────
