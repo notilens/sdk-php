@@ -107,7 +107,7 @@ class Cli
 
         $stateMeta = ['agent' => $flags['agent']];
         if (($state['duration_ms'] ?? 0) > 0) $stateMeta['duration_ms'] = $state['duration_ms'];
-        if (!empty($state['metrics']))          $stateMeta['metrics']     = $state['metrics'];
+        if (!empty($state['metrics']))         $stateMeta = array_merge($stateMeta, $state['metrics']);
 
         $meta = array_merge($stateMeta, $flags['meta']);
 

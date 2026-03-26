@@ -259,12 +259,8 @@ class NotiLens
 
         $extraMeta = array_diff_key($meta, array_flip(['image_url', 'open_url', 'download_url', 'tags']));
         $extraMeta['agent'] = $this->agent;
-        if ($duration > 0) {
-            $extraMeta['duration_ms'] = $duration;
-        }
-        if (!empty($this->metrics)) {
-            $extraMeta['metrics'] = $this->metrics;
-        }
+        if ($duration > 0)          $extraMeta['duration_ms'] = $duration;
+        if (!empty($this->metrics)) $extraMeta = array_merge($extraMeta, $this->metrics);
 
         $payload = [
             'event'         => $event,
