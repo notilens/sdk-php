@@ -7,6 +7,7 @@ class NotiLens
     private string $agent;
     private string $token;
     private string $secret;
+    private array  $metrics = [];
 
     private function __construct(string $agent, string $token, string $secret)
     {
@@ -41,6 +42,37 @@ class NotiLens
         }
 
         return new self($agent, $token, $secret);
+    }
+
+    // ── Metrics ───────────────────────────────────────────────────────────────
+
+    /**
+     * Set a metric. Numeric values are accumulated (added) if the key exists.
+     * Call anytime during a task — all metrics are auto-included in every send.
+     *
+     *   $agent->metric('tokens', 512);
+     *   $agent->metric('cost', 0.003);
+     *   $agent->metric('records', 1500);
+     */
+    public function metric(string $key, int|float|string $value): self
+    {
+        if (is_numeric($value) && isset($this->metrics[$key]) && is_numeric($this->metrics[$key])) {
+            $this->metrics[$key] += $value;
+        } else {
+            $this->metrics[$key] = $value;
+        }
+        return $this;
+    }
+
+    /** Reset one metric by key, or all metrics if no key given. */
+    public function resetMetrics(?string $key = null): self
+    {
+        if ($key !== null) {
+            unset($this->metrics[$key]);
+        } else {
+            $this->metrics = [];
+        }
+        return $this;
     }
 
     // ── Task lifecycle ────────────────────────────────────────────────────────
@@ -229,6 +261,9 @@ class NotiLens
         $extraMeta['agent'] = $this->agent;
         if ($duration > 0) {
             $extraMeta['duration_ms'] = $duration;
+        }
+        if (!empty($this->metrics)) {
+            $extraMeta['metrics'] = $this->metrics;
         }
 
         $payload = [

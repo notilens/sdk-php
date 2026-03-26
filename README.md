@@ -1,6 +1,6 @@
 # NotiLens
 
-Send notifications from AI agents and any PHP project to [NotiLens](https://www.notilens.com).
+Send notifications from AI agents, background jobs, workflows, and any PHP project to [NotiLens](https://www.notilens.com).
 
 Two ways to use it — pick one or both:
 
@@ -18,8 +18,6 @@ Or per-project:
 ```bash
 composer require notilens/notilens
 ```
-
----
 
 ---
 
@@ -70,11 +68,11 @@ notilens task.cancel   "User cancelled" --agent my-agent --task job_001
 notilens task.terminate "Out of memory" --agent my-agent --task job_001
 ```
 
-### AI Response Events
+### Output Events
 
 ```bash
-notilens ai.response.generate "Summary generated" --agent my-agent --task job_001
-notilens ai.response.fail     "Model unavailable" --agent my-agent --task job_001
+notilens output.generated "Report ready"    --agent my-agent --task job_001
+notilens output.failed    "Model timed out" --agent my-agent --task job_001
 ```
 
 ### Input / Human-in-the-loop
@@ -89,17 +87,17 @@ notilens input.reject   "Rejected"                  --agent my-agent --task job_
 
 ```bash
 notilens emit order.placed "Order #1234" --agent my-agent --meta amount=99.99
-notilens emit disk.space.full "Only 1GB remaining" --agent my-agent --type warning
+notilens emit disk.full "Only 1GB remaining" --agent my-agent --type warning
 ```
 
 ### Metrics
 
+Pass any key=value pairs — numeric values accumulate across calls:
+
 ```bash
-notilens set.metrics 512 128 0.95 --agent my-agent --task job_001
-#                    ^   ^   ^
-#                    |   |   confidence score (optional)
-#                    |   completion_tokens
-#                    prompt_tokens
+notilens metric tokens=512   --agent my-agent --task job_001
+notilens metric cost=0.003   --agent my-agent --task job_001
+notilens metric records=1500 --agent my-agent --task job_001
 ```
 
 ---
@@ -117,7 +115,6 @@ notilens set.metrics 512 128 0.95 --agent my-agent --task job_001
 | `--download_url <url>` | Link to download |
 | `--tags "tag1,tag2"` | Comma-separated tags |
 | `--is_actionable true\|false` | Override actionable flag |
-| `--confidence <0-1>` | Confidence score |
 
 ---
 
@@ -127,9 +124,9 @@ Assigned automatically based on the event — can be overridden with `--type`.
 
 | Type | Events |
 |------|--------|
-| `success` | `task.completed`, `ai.response.generated`, `input.approved` |
-| `urgent` | `task.failed`, `task.timeout`, `task.error`, `task.terminated`, `ai.response.failed` |
-| `warning` | `task.retrying`, `task.cancelled`, `input.required`, `input.rejected` |
+| `success` | `task.completed`, `output.generated`, `input.approved` |
+| `urgent` | `task.failed`, `task.timeout`, `task.error`, `task.terminated`, `output.failed` |
+| `warning` | `task.retry`, `task.cancelled`, `input.required`, `input.rejected` |
 | `info` | All others |
 
 ---
@@ -139,11 +136,11 @@ Assigned automatically based on the event — can be overridden with `--type`.
 ```bash
 notilens init --agent summarizer --token MY_TOKEN --secret MY_SECRET
 
-notilens task.start --agent summarizer --task job_42
-notilens set.metrics 1024 256 0.95 --agent summarizer --task job_42
+notilens task.start    --agent summarizer --task job_42
+notilens metric tokens=1024 --agent summarizer --task job_42
+notilens metric cost=0.004  --agent summarizer --task job_42
 notilens task.complete "Summary ready" --agent summarizer --task job_42 \
   --meta input_file=report.pdf \
-  --meta pages=12 \
   --open_url https://example.com/summary.pdf
 ```
 
@@ -158,7 +155,7 @@ Use the SDK to send notifications directly from your PHP code.
 ```php
 use NotiLens\NotiLens;
 
-// Option A — pass credentials directly (required on first use)
+// Option A — pass credentials directly
 $agent = NotiLens::init('my-agent', token: 'YOUR_TOKEN', secret: 'YOUR_SECRET');
 
 // Option B — read from environment variables
@@ -173,7 +170,7 @@ $agent = NotiLens::init('my-agent');
 ## 2. Task Lifecycle
 
 ```php
-$taskId = $agent->taskStart('job_001');          // required: auto-generates ID if null
+$taskId = $agent->taskStart('job_001');          // auto-generates ID if null
 
 $agent->taskProgress('Fetching records', $taskId);
 $agent->taskLoop('Processing batch 2', $taskId);
@@ -195,19 +192,37 @@ $agent->inputApproved('User confirmed', $taskId);
 $agent->inputRejected('User rejected', $taskId);
 ```
 
-## 4. AI Response Events
+## 4. Output Events
 
 ```php
-$agent->aiResponseGenerated('Summary: the document is about X', $taskId);
-$agent->aiResponseFailed('Model timeout', $taskId);
+// Use for any kind of generated output — AI response, report, file, API result
+$agent->outputGenerated('Summary ready', $taskId);
+$agent->outputFailed('Model timed out', $taskId);
 ```
 
-## 5. Generic Events
+## 5. Metrics
+
+Track any numeric or string values — accumulated automatically and included in every notification.
+
+```php
+$agent->metric('tokens', 350);    // set
+$agent->metric('tokens', 210);    // now 560 (numeric values accumulate)
+$agent->metric('cost', 0.0012);
+$agent->metric('records', 1500);
+$agent->metric('model', 'gpt-4'); // strings are replaced, not accumulated
+
+$agent->resetMetrics('tokens');   // reset one metric
+$agent->resetMetrics();           // reset all metrics
+```
+
+Metrics are auto-included in `meta.metrics` on every `send()` call.
+
+## 6. Generic Events
 
 ```php
 // Free-form events for anything beyond task lifecycle
 $agent->emit('order.placed', 'Order #1234', meta: ['amount' => 99.99]);
-$agent->emit('disk.space.full', 'Only 1GB remaining', level: 'warning');
+$agent->emit('disk.full', 'Only 1GB remaining', level: 'warning');
 $agent->emit('user.registered', 'New signup', meta: ['plan' => 'pro']);
 ```
 
@@ -220,10 +235,14 @@ $agent  = NotiLens::init('summarizer', token: 'TOKEN', secret: 'SECRET');
 $taskId = $agent->taskStart();
 
 try {
-    // ... your logic ...
     $agent->taskProgress('Fetching PDF', $taskId);
-    // ... more logic ...
-    $agent->taskComplete('Summary ready', $taskId);
+
+    $result = $llm->complete($prompt);
+    $agent->metric('tokens', $result->usage->total_tokens);
+    $agent->metric('cost', $result->usage->cost);
+
+    $agent->outputGenerated('Summary ready', $taskId);
+    $agent->taskComplete('All done', $taskId);
 } catch (\Throwable $e) {
     $agent->taskFail($e->getMessage(), $taskId);
 }
