@@ -250,16 +250,23 @@ class NotiLens
             ? "{$this->agent} | {$taskId} | {$event}"
             : "{$this->agent} | {$event}";
 
-        // Pull duration from state if available
-        $duration = 0;
+        // Pull duration/counts from state if available
+        $duration   = 0;
+        $retryCount = 0;
+        $loopCount  = 0;
         if ($taskId) {
-            $sf       = State::getFile($this->agent, $taskId);
-            $duration = State::read($sf)['duration_ms'] ?? 0;
+            $sf        = State::getFile($this->agent, $taskId);
+            $stateData = State::read($sf);
+            $duration   = $stateData['duration_ms']  ?? 0;
+            $retryCount = $stateData['retry_count']  ?? 0;
+            $loopCount  = $stateData['loop_count']   ?? 0;
         }
 
         $extraMeta = array_diff_key($meta, array_flip(['image_url', 'open_url', 'download_url', 'tags']));
         $extraMeta['agent'] = $this->agent;
-        if ($duration > 0)          $extraMeta['duration_ms'] = $duration;
+        if ($duration   > 0) $extraMeta['duration_ms']  = $duration;
+        if ($retryCount > 0) $extraMeta['retry_count']  = $retryCount;
+        if ($loopCount  > 0) $extraMeta['loop_count']   = $loopCount;
         if (!empty($this->metrics)) $extraMeta = array_merge($extraMeta, $this->metrics);
 
         $payload = [
