@@ -1,6 +1,6 @@
 {
   "name": "notilens/notilens",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "NotiLens — unified SDK + CLI for AI agent notifications",
   "type": "library",
   "keywords": ["notilens", "ai-agent", "notifications", "monitoring", "cli"],
