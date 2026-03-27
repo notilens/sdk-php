@@ -27,7 +27,6 @@ class Notify
             $body,
         ]);
 
-        // Fire-and-forget — open TLS socket, write request, close without reading response
         $ctx  = stream_context_create(['ssl' => ['verify_peer' => true, 'verify_peer_name' => true]]);
         $sock = @stream_socket_client(
             'ssl://' . self::HOST . ':' . self::PORT,
@@ -36,12 +35,19 @@ class Notify
             STREAM_CLIENT_CONNECT,
             $ctx
         );
-        if ($sock === false) return; // server unreachable — skip silently
+        if ($sock === false) {
+            error_log("NotiLens: connect failed [{$errno}] {$errstr}");
+            return;
+        }
 
-        // Write synchronously (just a kernel buffer copy — microseconds),
-        // then close. OS sends buffered data in background after close.
-        @fwrite($sock, $request);
-        @fclose($sock);
+        fwrite($sock, $request);
+        stream_set_timeout($sock, 5);
+        $status = fgets($sock); // read HTTP status line
+        fclose($sock);
+
+        if ($status !== false && !str_contains($status, ' 2')) {
+            error_log('NotiLens: unexpected response: ' . trim($status));
+        }
     }
 
     private static function version(): string
