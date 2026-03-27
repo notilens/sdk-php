@@ -55,10 +55,14 @@ notilens remove-agent my-agent
 # required: --agent
 # optional: --task (auto-generated if omitted)
 
+notilens task.queue    --agent my-agent --task job_001
 notilens task.start    --agent my-agent --task job_001
 notilens task.progress "Fetching data"  --agent my-agent --task job_001
 notilens task.loop     "Step 3 of 10"   --agent my-agent --task job_001
 notilens task.retry    --agent my-agent --task job_001
+notilens task.pause    "Rate limited"   --agent my-agent --task job_001
+notilens task.resume   "Resuming"       --agent my-agent --task job_001
+notilens task.wait     "Awaiting tool"  --agent my-agent --task job_001
 notilens task.stop     --agent my-agent --task job_001
 notilens task.complete "All done"       --agent my-agent --task job_001
 notilens task.error    "Step 3 failed"  --agent my-agent --task job_001
@@ -86,8 +90,8 @@ notilens input.reject   "Rejected"                  --agent my-agent --task job_
 ### Generic Event
 
 ```bash
-notilens emit order.placed "Order #1234" --agent my-agent --meta amount=99.99
-notilens emit disk.full "Only 1GB remaining" --agent my-agent --type warning
+notilens track order.placed "Order #1234" --agent my-agent --meta amount=99.99
+notilens track disk.full "Only 1GB remaining" --agent my-agent --type warning
 ```
 
 ### Metrics
@@ -175,11 +179,15 @@ $agent = NotiLens::init('my-agent');
 ## 2. Task Lifecycle
 
 ```php
+$taskId = $agent->taskQueued();                  // pre-start signal, returns task_id
 $taskId = $agent->taskStart('job_001');          // auto-generates ID if null
 
 $agent->taskProgress('Fetching records', $taskId);
 $agent->taskLoop('Processing batch 2', $taskId);
 $agent->taskRetry($taskId);
+$agent->taskPaused('Waiting for rate limit', $taskId);    // non-terminal warning
+$agent->taskResumed('Resuming work', $taskId);             // non-terminal info
+$agent->taskWaiting('Waiting for tool response', $taskId); // non-terminal warning
 $agent->taskError('Non-fatal error', $taskId);   // task continues
 $agent->taskComplete('All done', $taskId);        // terminal — clears state
 $agent->taskFail('Unrecoverable', $taskId);       // terminal
@@ -222,13 +230,27 @@ $agent->resetMetrics();           // reset all metrics
 
 Metrics are auto-included in `meta.metrics` on every `send()` call.
 
+## Automatic Timing
+
+NotiLens automatically tracks task timing. These fields are included in every notification's `meta` payload when non-zero:
+
+| Field | Description |
+|-------|-------------|
+| `total_duration_ms` | Wall-clock time since `task_start` |
+| `queue_ms` | Time between `task_queue` and `task_start` |
+| `pause_ms` | Cumulative time spent paused |
+| `wait_ms` | Cumulative time spent waiting |
+| `active_ms` | Active time (`total − pause − wait`) |
+
+---
+
 ## 6. Generic Events
 
 ```php
 // Free-form events for anything beyond task lifecycle
-$agent->emit('order.placed', 'Order #1234', meta: ['amount' => 99.99]);
-$agent->emit('disk.full', 'Only 1GB remaining', level: 'warning');
-$agent->emit('user.registered', 'New signup', meta: ['plan' => 'pro']);
+$agent->track('order.placed', 'Order #1234', meta: ['amount' => 99.99]);
+$agent->track('disk.full', 'Only 1GB remaining', level: 'warning');
+$agent->track('user.registered', 'New signup', meta: ['plan' => 'pro']);
 ```
 
 ## Full Example
