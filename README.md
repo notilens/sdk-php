@@ -49,186 +49,131 @@ notilens remove-agent my-agent
 
 ## Commands
 
+`--task` is a semantic label (e.g. `email`, `report`). Each `task.start` creates an isolated run internally — concurrent executions of the same label never conflict.
+
 ### Task Lifecycle
 
 ```bash
-# required: --agent
-# optional: --task (auto-generated if omitted)
-
-notilens task.queue    --agent my-agent --task job_001
-notilens task.start    --agent my-agent --task job_001
-notilens task.progress "Fetching data"  --agent my-agent --task job_001
-notilens task.loop     "Step 3 of 10"   --agent my-agent --task job_001
-notilens task.retry    --agent my-agent --task job_001
-notilens task.pause    "Rate limited"   --agent my-agent --task job_001
-notilens task.resume   "Resuming"       --agent my-agent --task job_001
-notilens task.wait     "Awaiting tool"  --agent my-agent --task job_001
-notilens task.stop     --agent my-agent --task job_001
-notilens task.complete "All done"       --agent my-agent --task job_001
-notilens task.error    "Step 3 failed"  --agent my-agent --task job_001
-notilens task.fail     "Unrecoverable"  --agent my-agent --task job_001
-notilens task.timeout  "Took too long"  --agent my-agent --task job_001
-notilens task.cancel   "User cancelled" --agent my-agent --task job_001
-notilens task.terminate "Out of memory" --agent my-agent --task job_001
+notilens task.queue    --agent my-agent --task email
+notilens task.start    --agent my-agent --task email
+notilens task.progress "Fetching data"  --agent my-agent --task email
+notilens task.loop     "Step 3 of 10"   --agent my-agent --task email
+notilens task.retry    --agent my-agent --task email
+notilens task.pause    "Rate limited"   --agent my-agent --task email
+notilens task.resume   "Resuming"       --agent my-agent --task email
+notilens task.wait     "Awaiting tool"  --agent my-agent --task email
+notilens task.stop     --agent my-agent --task email
+notilens task.complete "All done"       --agent my-agent --task email
+notilens task.error    "Step 3 failed"  --agent my-agent --task email
+notilens task.fail     "Unrecoverable"  --agent my-agent --task email
+notilens task.timeout  "Took too long"  --agent my-agent --task email
+notilens task.cancel   "User cancelled" --agent my-agent --task email
+notilens task.terminate "Out of memory" --agent my-agent --task email
 ```
+
+`task.start` prints the internal `run_id` to stdout.
 
 ### Output Events
 
 ```bash
-notilens output.generated "Report ready"    --agent my-agent --task job_001
-notilens output.failed    "Model timed out" --agent my-agent --task job_001
+notilens output.generate "Report ready"     --agent my-agent --task email
+notilens output.fail     "Model unavailable" --agent my-agent --task email
 ```
 
 ### Input / Human-in-the-loop
 
 ```bash
-notilens input.required "Please confirm the output" --agent my-agent --task job_001
-notilens input.approve  "Confirmed"                 --agent my-agent --task job_001
-notilens input.reject   "Rejected"                  --agent my-agent --task job_001
-```
-
-### Generic Event
-
-```bash
-notilens track order.placed "Order #1234" --agent my-agent --meta amount=99.99
-notilens track disk.full "Only 1GB remaining" --agent my-agent --type warning
+notilens input.required "Please confirm" --agent my-agent --task email
+notilens input.approve  "Confirmed"      --agent my-agent --task email
+notilens input.reject   "Rejected"       --agent my-agent --task email
 ```
 
 ### Metrics
 
-Pass any key=value pairs — numeric values accumulate across calls:
-
 ```bash
-notilens metric tokens=512 cost=0.003 --agent my-agent --task job_001
-notilens metric records=1500          --agent my-agent --task job_001
-
-# Reset one metric
-notilens metric.reset tokens --agent my-agent --task job_001
-
-# Reset all metrics
-notilens metric.reset --agent my-agent --task job_001
+notilens metric tokens=512 cost=0.003 --agent my-agent --task email
+notilens metric.reset tokens          --agent my-agent --task email
+notilens metric.reset                 --agent my-agent --task email
 ```
 
----
-
-## Options
-
-| Flag | Description |
-|------|-------------|
-| `--agent <name>` | Agent name **(required)** |
-| `--task <id>` | Task ID (auto-generated if omitted) |
-| `--type` | Override type: `info` `success` `warning` `urgent` |
-| `--meta key=value` | Custom metadata (repeatable) |
-| `--image_url <url>` | Attach an image |
-| `--open_url <url>` | Link to open |
-| `--download_url <url>` | Link to download |
-| `--tags "tag1,tag2"` | Comma-separated tags |
-| `--is_actionable true\|false` | Override actionable flag |
-
----
-
-## Notification Types
-
-Assigned automatically based on the event — can be overridden with `--type`.
-
-| Type | Events |
-|------|--------|
-| `success` | `task.completed`, `output.generated`, `input.approved` |
-| `urgent` | `task.failed`, `task.timeout`, `task.error`, `task.terminated`, `output.failed` |
-| `warning` | `task.retry`, `task.cancelled`, `input.required`, `input.rejected` |
-| `info` | All others |
-
----
-
-## Full Example
+### Custom Events
 
 ```bash
-notilens init --agent summarizer --token MY_TOKEN --secret MY_SECRET
-
-notilens task.start    --agent summarizer --task job_42
-notilens metric tokens=1024 --agent summarizer --task job_42
-notilens metric cost=0.004  --agent summarizer --task job_42
-notilens task.complete "Summary ready" --agent summarizer --task job_42 \
-  --meta input_file=report.pdf \
-  --open_url https://example.com/summary.pdf
+notilens track order.placed "Order #1234" --agent my-agent
 ```
 
 ---
 
 # SDK
 
-Use the SDK to send notifications directly from your PHP code.
-
-## 1. Setup
+## Setup
 
 ```php
 use NotiLens\NotiLens;
 
-// Option A — pass credentials directly
+// Pass credentials directly
 $agent = NotiLens::init('my-agent', token: 'YOUR_TOKEN', secret: 'YOUR_SECRET');
 
-// Option B — read from environment variables
-// NOTILENS_TOKEN=xxx NOTILENS_SECRET=yyy
+// Or via env vars: NOTILENS_TOKEN / NOTILENS_SECRET
 $agent = NotiLens::init('my-agent');
 
-// Option C — read from saved CLI config (~/.notilens_config.json)
-// after running: notilens init --agent my-agent --token TOKEN --secret SECRET
-$agent = NotiLens::init('my-agent');
+// All options
+$agent = NotiLens::init(
+    agent:    'my-agent',
+    token:    'YOUR_TOKEN',   // required (or env var)
+    secret:   'YOUR_SECRET',  // required (or env var)
+    stateTtl: 86400,          // optional — orphaned state TTL in seconds (default: 86400 / 24h)
+);
 ```
 
-## 2. Task Lifecycle
+## Task Lifecycle
+
+`$agent->task($label)` creates a `Run` — an isolated execution context. Multiple concurrent runs of the same label never conflict.
 
 ```php
-$taskId = $agent->taskQueued();                  // pre-start signal, returns task_id
-$taskId = $agent->taskStart('job_001');          // auto-generates ID if null
+$run = $agent->task('email');  // create a run for the "email" task
+$run->queue();                  // optional — pre-start signal
+$run->start();                  // begin the run
 
-$agent->taskProgress('Fetching records', $taskId);
-$agent->taskLoop('Processing batch 2', $taskId);
-$agent->taskRetry($taskId);
-$agent->taskPaused('Waiting for rate limit', $taskId);    // non-terminal warning
-$agent->taskResumed('Resuming work', $taskId);             // non-terminal info
-$agent->taskWaiting('Waiting for tool response', $taskId); // non-terminal warning
-$agent->taskError('Non-fatal error', $taskId);   // task continues
-$agent->taskComplete('All done', $taskId);        // terminal — clears state
-$agent->taskFail('Unrecoverable', $taskId);       // terminal
-$agent->taskTimeout('Exceeded 30s', $taskId);     // terminal
-$agent->taskCancel('User cancelled', $taskId);    // terminal
-$agent->taskTerminate('OOM', $taskId);            // terminal
-$agent->taskStop($taskId);
+$run->progress('Fetching data');
+$run->loop('Processing item 42');
+$run->retry();
+$run->pause('Rate limited');
+$run->resume('Resuming work');
+$run->wait('Waiting for tool response');
+
+$run->stop();
+$run->error('Step failed, retrying');  // non-fatal, run continues
+
+// Terminal — pick one
+$run->complete('All done');
+$run->fail('Unrecoverable error');
+$run->timeout('Timed out after 5m');
+$run->cancel('Cancelled by user');
+$run->terminate('Force-killed');
 ```
 
-## 3. Input / Human-in-the-loop
+## Input / Output
 
 ```php
-$agent->inputRequired('Please confirm the output', $taskId);
-$agent->inputApproved('User confirmed', $taskId);
-$agent->inputRejected('User rejected', $taskId);
+$run->inputRequired('Approve deployment?');
+$run->inputApproved('Approved');
+$run->inputRejected('Rejected');
+
+$run->outputGenerated('Report ready');
+$run->outputFailed('Rendering failed');
 ```
 
-## 4. Output Events
+## Metrics
 
 ```php
-// Use for any kind of generated output — AI response, report, file, API result
-$agent->outputGenerated('Summary ready', $taskId);
-$agent->outputFailed('Model timed out', $taskId);
+$run->metric('tokens', 512);
+$run->metric('tokens', 128);   // now 640
+$run->metric('cost', 0.003);
+
+$run->resetMetrics('tokens');  // reset one
+$run->resetMetrics();          // reset all
 ```
-
-## 5. Metrics
-
-Track any numeric or string values — accumulated automatically and included in every notification.
-
-```php
-$agent->metric('tokens', 350);    // set
-$agent->metric('tokens', 210);    // now 560 (numeric values accumulate)
-$agent->metric('cost', 0.0012);
-$agent->metric('records', 1500);
-$agent->metric('model', 'gpt-4'); // strings are replaced, not accumulated
-
-$agent->resetMetrics('tokens');   // reset one metric
-$agent->resetMetrics();           // reset all metrics
-```
-
-Metrics are auto-included in `meta.metrics` on every `send()` call.
 
 ## Automatic Timing
 
@@ -236,21 +181,19 @@ NotiLens automatically tracks task timing. These fields are included in every no
 
 | Field | Description |
 |-------|-------------|
-| `total_duration_ms` | Wall-clock time since `task_start` |
-| `queue_ms` | Time between `task_queue` and `task_start` |
+| `total_duration_ms` | Wall-clock time since `start` |
+| `queue_ms` | Time between `queue` and `start` |
 | `pause_ms` | Cumulative time spent paused |
 | `wait_ms` | Cumulative time spent waiting |
 | `active_ms` | Active time (`total − pause − wait`) |
 
----
-
-## 6. Generic Events
+## Generic Events
 
 ```php
-// Free-form events for anything beyond task lifecycle
-$agent->track('order.placed', 'Order #1234', meta: ['amount' => 99.99]);
-$agent->track('disk.full', 'Only 1GB remaining', level: 'warning');
-$agent->track('user.registered', 'New signup', meta: ['plan' => 'pro']);
+$run->track('custom.event', 'Something happened');
+$run->track('custom.event', 'With meta', ['key' => 'value']);
+
+$agent->track('app.deployed', 'v2.3.1 deployed');
 ```
 
 ## Full Example
@@ -258,29 +201,24 @@ $agent->track('user.registered', 'New signup', meta: ['plan' => 'pro']);
 ```php
 use NotiLens\NotiLens;
 
-$agent  = NotiLens::init('summarizer', token: 'TOKEN', secret: 'SECRET');
-$taskId = $agent->taskStart();
+$agent = NotiLens::init('summarizer', token: 'TOKEN', secret: 'SECRET');
+$run   = $agent->task('report');
+$run->start();
 
 try {
-    $agent->taskProgress('Fetching PDF', $taskId);
-
+    $run->progress('Fetching PDF');
     $result = $llm->complete($prompt);
-    $agent->metric('tokens', $result->usage->total_tokens);
-    $agent->metric('cost', $result->usage->cost);
-
-    $agent->outputGenerated('Summary ready', $taskId);
-    $agent->taskComplete('All done', $taskId);
+    $run->metric('tokens', $result->usage->total_tokens);
+    $run->outputGenerated('Summary ready');
+    $run->complete('All done');
 } catch (\Throwable $e) {
-    $agent->taskFail($e->getMessage(), $taskId);
+    $run->fail($e->getMessage());
 }
 ```
-
----
 
 ## Requirements
 
 - PHP >= 8.1
-- Composer
 
 ## License
 

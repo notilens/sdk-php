@@ -4,10 +4,21 @@ namespace NotiLens;
 
 class State
 {
-    public static function getFile(string $agent, string $taskId): string
+    private static function user(): string
     {
-        $user = get_current_user();
-        return sys_get_temp_dir() . "/notilens_{$user}_{$agent}_{$taskId}.json";
+        $u = get_current_user();
+        return $u ?: (getenv('USER') ?: 'default');
+    }
+
+    public static function getFile(string $agent, string $runId): string
+    {
+        return sys_get_temp_dir() . '/notilens_' . self::user() . "_{$agent}_{$runId}.json";
+    }
+
+    public static function getPointerFile(string $agent, string $label): string
+    {
+        $safeLabel = preg_replace('/[\/\\\\]/', '_', $label);
+        return sys_get_temp_dir() . '/notilens_' . self::user() . "_{$agent}_{$safeLabel}.ptr";
     }
 
     public static function read(string $file): array
@@ -31,5 +42,40 @@ class State
     public static function delete(string $file): void
     {
         if (file_exists($file)) unlink($file);
+    }
+
+    public static function readPointer(string $agent, string $label): string
+    {
+        $pf = self::getPointerFile($agent, $label);
+        if (!file_exists($pf)) return '';
+        return trim(file_get_contents($pf));
+    }
+
+    public static function writePointer(string $agent, string $label, string $runId): void
+    {
+        file_put_contents(self::getPointerFile($agent, $label), $runId);
+    }
+
+    public static function deletePointer(string $agent, string $label): void
+    {
+        $pf = self::getPointerFile($agent, $label);
+        if (file_exists($pf)) unlink($pf);
+    }
+
+    public static function cleanupStale(string $agent, int $stateTtlSeconds): void
+    {
+        $user   = self::user();
+        $tmp    = sys_get_temp_dir();
+        $cutoff = time() - $stateTtlSeconds;
+        $prefix = "notilens_{$user}_{$agent}_";
+
+        foreach (scandir($tmp) as $file) {
+            if (!str_starts_with($file, $prefix)) continue;
+            if (!str_ends_with($file, '.json') && !str_ends_with($file, '.ptr')) continue;
+            $full = $tmp . DIRECTORY_SEPARATOR . $file;
+            try {
+                if (filemtime($full) < $cutoff) unlink($full);
+            } catch (\Throwable) {}
+        }
     }
 }

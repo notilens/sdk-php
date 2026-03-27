@@ -4,45 +4,44 @@ namespace NotiLens;
 
 class Notify
 {
-    private const WEBHOOK_URL = 'https://hook.notilens.com/webhook/%s/send';
-    private const MAX_RETRIES = 2;
-    private const TIMEOUT_S   = 10;
+    private const HOST    = 'hook.notilens.com';
+    private const PATH    = '/webhook/%s/send';
+    private const PORT    = 443;
+    private const CONNECT_TIMEOUT = 2.0;
 
     public static function send(string $token, string $secret, array $payload): void
     {
-        $endpoint = sprintf(self::WEBHOOK_URL, $token);
-        $body     = json_encode($payload);
-        $version  = self::version();
-        $headers  = implode("\r\n", [
+        $body    = json_encode($payload);
+        $path    = sprintf(self::PATH, $token);
+        $version = self::version();
+
+        $request = implode("\r\n", [
+            "POST {$path} HTTP/1.1",
+            'Host: ' . self::HOST,
             'Content-Type: application/json',
             "X-NOTILENS-KEY: {$secret}",
             "User-Agent: NotiLens-PHP/{$version}",
             'Content-Length: ' . strlen($body),
+            'Connection: close',
+            '',
+            $body,
         ]);
 
-        $context = stream_context_create([
-            'http' => [
-                'method'        => 'POST',
-                'header'        => $headers,
-                'content'       => $body,
-                'timeout'       => self::TIMEOUT_S,
-                'ignore_errors' => true,
-            ],
-        ]);
+        // Fire-and-forget — open TLS socket, write request, close without reading response
+        $ctx  = stream_context_create(['ssl' => ['verify_peer' => true, 'verify_peer_name' => true]]);
+        $sock = @stream_socket_client(
+            'ssl://' . self::HOST . ':' . self::PORT,
+            $errno, $errstr,
+            self::CONNECT_TIMEOUT,
+            STREAM_CLIENT_CONNECT,
+            $ctx
+        );
+        if ($sock === false) return; // server unreachable — skip silently
 
-        $lastErr = null;
-        for ($i = 0; $i <= self::MAX_RETRIES; $i++) {
-            try {
-                $result = @file_get_contents($endpoint, false, $context);
-                if ($result !== false) return;
-                throw new \RuntimeException('Request failed');
-            } catch (\Throwable $e) {
-                $lastErr = $e;
-                if ($i < self::MAX_RETRIES) sleep(1);
-            }
-        }
-
-        throw $lastErr;
+        stream_set_blocking($sock, false);
+        @fwrite($sock, $request);
+        @fflush($sock);
+        @fclose($sock);
     }
 
     private static function version(): string
