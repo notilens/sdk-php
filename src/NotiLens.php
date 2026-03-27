@@ -77,25 +77,54 @@ class NotiLens
 
     // ── Task lifecycle ────────────────────────────────────────────────────────
 
-    public function taskStart(?string $taskId = null): string
+    public function taskQueued(?string $taskId = null): string
     {
         $taskId    ??= 'task_' . round(microtime(true) * 1000);
         $stateFile = State::getFile($this->agent, $taskId);
         State::write($stateFile, [
-            'agent'       => $this->agent,
-            'task'        => $taskId,
-            'start_time'  => (int)(microtime(true) * 1000),
-            'retry_count' => 0,
-            'loop_count'  => 0,
+            'agent'          => $this->agent,
+            'task'           => $taskId,
+            'queued_at'      => (int)(microtime(true) * 1000),
+            'retry_count'    => 0,
+            'loop_count'     => 0,
+            'error_count'    => 0,
+            'pause_count'    => 0,
+            'wait_count'     => 0,
+            'pause_total_ms' => 0,
+            'wait_total_ms'  => 0,
         ]);
+        $this->send('task.queued', 'Task queued', taskId: $taskId);
+        return $taskId;
+    }
+
+    public function taskStart(?string $taskId = null): string
+    {
+        $taskId    ??= 'task_' . round(microtime(true) * 1000);
+        $stateFile = State::getFile($this->agent, $taskId);
+        $now       = (int)(microtime(true) * 1000);
+        $existing  = State::read($stateFile);
+        if (!empty($existing)) {
+            State::update($stateFile, ['start_time' => $now]);
+        } else {
+            State::write($stateFile, [
+                'agent'          => $this->agent,
+                'task'           => $taskId,
+                'start_time'     => $now,
+                'retry_count'    => 0,
+                'loop_count'     => 0,
+                'error_count'    => 0,
+                'pause_count'    => 0,
+                'wait_count'     => 0,
+                'pause_total_ms' => 0,
+                'wait_total_ms'  => 0,
+            ]);
+        }
         $this->send('task.started', 'Task started', taskId: $taskId);
         return $taskId;
     }
 
     public function taskProgress(string $message, string $taskId): void
     {
-        $sf = State::getFile($this->agent, $taskId);
-        State::update($sf, ['duration_ms' => $this->calcDuration($sf)]);
         $this->send('task.progress', $message, taskId: $taskId);
     }
 
@@ -104,73 +133,103 @@ class NotiLens
         $sf    = State::getFile($this->agent, $taskId);
         $state = State::read($sf);
         $count = ($state['loop_count'] ?? 0) + 1;
-        State::update($sf, ['duration_ms' => $this->calcDuration($sf), 'loop_count' => $count]);
+        State::update($sf, ['loop_count' => $count]);
         $this->send('task.loop', $message, taskId: $taskId);
     }
 
-    public function taskRetry(string $taskId): void  // fires task.retry
+    public function taskRetry(string $taskId): void
     {
         $sf    = State::getFile($this->agent, $taskId);
         $state = State::read($sf);
-        State::update($sf, [
-            'duration_ms' => $this->calcDuration($sf),
-            'retry_count' => ($state['retry_count'] ?? 0) + 1,
-        ]);
+        State::update($sf, ['retry_count' => ($state['retry_count'] ?? 0) + 1]);
         $this->send('task.retry', 'Retrying task', taskId: $taskId);
     }
 
     public function taskError(string $message, string $taskId): void
     {
-        $sf = State::getFile($this->agent, $taskId);
-        State::update($sf, ['duration_ms' => $this->calcDuration($sf), 'last_error' => $message]);
+        $sf    = State::getFile($this->agent, $taskId);
+        $state = State::read($sf);
+        State::update($sf, ['last_error' => $message, 'error_count' => ($state['error_count'] ?? 0) + 1]);
         $this->send('task.error', $message, taskId: $taskId);
     }
 
     public function taskComplete(string $message, string $taskId): void
     {
-        $sf = State::getFile($this->agent, $taskId);
-        State::update($sf, ['duration_ms' => $this->calcDuration($sf)]);
         $this->send('task.completed', $message, taskId: $taskId);
-        State::delete($sf);
+        State::delete(State::getFile($this->agent, $taskId));
     }
 
     public function taskFail(string $message, string $taskId): void
     {
-        $sf = State::getFile($this->agent, $taskId);
-        State::update($sf, ['duration_ms' => $this->calcDuration($sf)]);
         $this->send('task.failed', $message, taskId: $taskId);
-        State::delete($sf);
+        State::delete(State::getFile($this->agent, $taskId));
     }
 
     public function taskTimeout(string $message, string $taskId): void
     {
-        $sf = State::getFile($this->agent, $taskId);
-        State::update($sf, ['duration_ms' => $this->calcDuration($sf)]);
         $this->send('task.timeout', $message, taskId: $taskId);
-        State::delete($sf);
+        State::delete(State::getFile($this->agent, $taskId));
     }
 
     public function taskCancel(string $message, string $taskId): void
     {
-        $sf = State::getFile($this->agent, $taskId);
-        State::update($sf, ['duration_ms' => $this->calcDuration($sf)]);
         $this->send('task.cancelled', $message, taskId: $taskId);
-        State::delete($sf);
+        State::delete(State::getFile($this->agent, $taskId));
     }
 
     public function taskStop(string $taskId): void
     {
-        $sf = State::getFile($this->agent, $taskId);
-        State::update($sf, ['duration_ms' => $this->calcDuration($sf)]);
         $this->send('task.stopped', 'Task stopped', taskId: $taskId);
+    }
+
+    public function taskPaused(string $message, string $taskId): void
+    {
+        $sf    = State::getFile($this->agent, $taskId);
+        $state = State::read($sf);
+        $now   = (int)(microtime(true) * 1000);
+        State::update($sf, [
+            'paused_at'   => $now,
+            'pause_count' => ($state['pause_count'] ?? 0) + 1,
+        ]);
+        $this->send('task.paused', $message, taskId: $taskId);
+    }
+
+    public function taskResumed(string $message, string $taskId): void
+    {
+        $sf      = State::getFile($this->agent, $taskId);
+        $state   = State::read($sf);
+        $now     = (int)(microtime(true) * 1000);
+        $updates = [];
+        if (!empty($state['paused_at'])) {
+            $updates['pause_total_ms'] = ($state['pause_total_ms'] ?? 0) + ($now - $state['paused_at']);
+            $updates['paused_at']      = null;
+        }
+        if (!empty($state['wait_at'])) {
+            $updates['wait_total_ms'] = ($state['wait_total_ms'] ?? 0) + ($now - $state['wait_at']);
+            $updates['wait_at']       = null;
+        }
+        if (!empty($updates)) {
+            State::update($sf, $updates);
+        }
+        $this->send('task.resumed', $message, taskId: $taskId);
+    }
+
+    public function taskWaiting(string $message, string $taskId): void
+    {
+        $sf    = State::getFile($this->agent, $taskId);
+        $state = State::read($sf);
+        $now   = (int)(microtime(true) * 1000);
+        State::update($sf, [
+            'wait_at'    => $now,
+            'wait_count' => ($state['wait_count'] ?? 0) + 1,
+        ]);
+        $this->send('task.waiting', $message, taskId: $taskId);
     }
 
     public function taskTerminate(string $message, string $taskId): void
     {
-        $sf = State::getFile($this->agent, $taskId);
-        State::update($sf, ['duration_ms' => $this->calcDuration($sf)]);
         $this->send('task.terminated', $message, taskId: $taskId);
-        State::delete($sf);
+        State::delete(State::getFile($this->agent, $taskId));
     }
 
     // ── Input events ──────────────────────────────────────────────────────────
@@ -202,9 +261,9 @@ class NotiLens
         $this->send('output.failed', $message, taskId: $taskId);
     }
 
-    // ── Generic emit ──────────────────────────────────────────────────────────
+    // ── Generic track ─────────────────────────────────────────────────────────
 
-    public function emit(string $event, string $message, array $meta = [], string $level = 'info'): void
+    public function track(string $event, string $message, array $meta = [], string $level = 'info'): void
     {
         $this->send($event, $message, meta: $meta, level: $level);
     }
@@ -242,7 +301,7 @@ class NotiLens
         // urgent overrides for specific events
         if (in_array($event, ['task.failed', 'task.timeout', 'task.error', 'task.terminated', 'output.failed'], true)) {
             $ntype = 'urgent';
-        } elseif (in_array($event, ['task.retry', 'task.cancelled', 'input.required', 'input.rejected'], true)) {
+        } elseif (in_array($event, ['task.retry', 'task.cancelled', 'task.paused', 'task.waiting', 'input.required', 'input.rejected'], true)) {
             $ntype = 'warning';
         }
 
@@ -250,23 +309,44 @@ class NotiLens
             ? "{$this->agent} | {$taskId} | {$event}"
             : "{$this->agent} | {$event}";
 
-        // Pull duration/counts from state if available
-        $duration   = 0;
-        $retryCount = 0;
-        $loopCount  = 0;
+        // Compute duration fields from state
+        $totalMs = $queueMs = $pauseMs = $waitMs = $activeMs = 0;
+        $retryCount = $loopCount = $errorCount = $pauseCount = $waitCount = 0;
         if ($taskId) {
-            $sf        = State::getFile($this->agent, $taskId);
-            $stateData = State::read($sf);
-            $duration   = $stateData['duration_ms']  ?? 0;
-            $retryCount = $stateData['retry_count']  ?? 0;
-            $loopCount  = $stateData['loop_count']   ?? 0;
+            $sf    = State::getFile($this->agent, $taskId);
+            $s     = State::read($sf);
+            $now   = (int)(microtime(true) * 1000);
+            $startTime  = $s['start_time']    ?? 0;
+            $queuedAt   = $s['queued_at']     ?? 0;
+            $pauseTotal = $s['pause_total_ms'] ?? 0;
+            $waitTotal  = $s['wait_total_ms']  ?? 0;
+            if (!empty($s['paused_at'])) $pauseTotal += $now - $s['paused_at'];
+            if (!empty($s['wait_at']))   $waitTotal  += $now - $s['wait_at'];
+            $totalMs  = $startTime ? $now - $startTime : 0;
+            $queueMs  = ($startTime && $queuedAt) ? $startTime - $queuedAt : 0;
+            $activeMs = max(0, $totalMs - $pauseTotal - $waitTotal);
+            $pauseMs  = $pauseTotal;
+            $waitMs   = $waitTotal;
+            $retryCount = $s['retry_count'] ?? 0;
+            $loopCount  = $s['loop_count']  ?? 0;
+            $errorCount = $s['error_count'] ?? 0;
+            $pauseCount = $s['pause_count'] ?? 0;
+            $waitCount  = $s['wait_count']  ?? 0;
         }
 
         $extraMeta = array_diff_key($meta, array_flip(['image_url', 'open_url', 'download_url', 'tags']));
         $extraMeta['agent'] = $this->agent;
-        if ($duration   > 0) $extraMeta['duration_ms']  = $duration;
-        if ($retryCount > 0) $extraMeta['retry_count']  = $retryCount;
-        if ($loopCount  > 0) $extraMeta['loop_count']   = $loopCount;
+        if ($taskId)      $extraMeta['task_id']          = $taskId;
+        if ($totalMs  > 0) $extraMeta['total_duration_ms'] = $totalMs;
+        if ($queueMs  > 0) $extraMeta['queue_ms']          = $queueMs;
+        if ($pauseMs  > 0) $extraMeta['pause_ms']          = $pauseMs;
+        if ($waitMs   > 0) $extraMeta['wait_ms']           = $waitMs;
+        if ($activeMs > 0) $extraMeta['active_ms']         = $activeMs;
+        if ($retryCount > 0) $extraMeta['retry_count'] = $retryCount;
+        if ($loopCount  > 0) $extraMeta['loop_count']  = $loopCount;
+        if ($errorCount > 0) $extraMeta['error_count'] = $errorCount;
+        if ($pauseCount > 0) $extraMeta['pause_count'] = $pauseCount;
+        if ($waitCount  > 0) $extraMeta['wait_count']  = $waitCount;
         if (!empty($this->metrics)) $extraMeta = array_merge($extraMeta, $this->metrics);
 
         $payload = [
@@ -292,9 +372,4 @@ class NotiLens
         }
     }
 
-    private function calcDuration(string $stateFile): int
-    {
-        $start = State::read($stateFile)['start_time'] ?? 0;
-        return $start ? (int)(microtime(true) * 1000) - $start : 0;
-    }
 }
