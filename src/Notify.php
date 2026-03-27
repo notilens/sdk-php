@@ -38,9 +38,9 @@ class Notify
         );
         if ($sock === false) return; // server unreachable — skip silently
 
-        stream_set_blocking($sock, false);
+        // Write synchronously (just a kernel buffer copy — microseconds),
+        // then close. OS sends buffered data in background after close.
         @fwrite($sock, $request);
-        @fflush($sock);
         @fclose($sock);
     }
 

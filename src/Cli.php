@@ -66,7 +66,7 @@ class Cli
         $runId = State::readPointer($flags['agent'], $flags['task_label']);
         if (!$runId) {
             $label = $flags['task_label'] ?: '(no --task)';
-            fwrite(STDERR, "❌ No active run for agent '{$flags['agent']}' task '{$label}'. Run task.start first.\n");
+            fwrite(STDERR, "❌ No active run for agent '{$flags['agent']}' task '{$label}'. Run start first.\n");
             exit(1);
         }
         return $runId;
@@ -168,7 +168,6 @@ class Cli
 
         try {
             Notify::send($conf['token'], $conf['secret'], $payload);
-            usleep(300_000);
         } catch (\Throwable) {
             // silent fail
         }
@@ -226,7 +225,7 @@ class Cli
                     : fwrite(STDERR, "Agent '{$agent}' not found\n");
                 break;
 
-            case 'task.queue': {
+            case 'queue': {
                 $flags     = self::parseFlags($rest);
                 $runId     = self::genRunId();
                 $stateFile = State::getFile($flags['agent'], $runId);
@@ -249,7 +248,7 @@ class Cli
                 break;
             }
 
-            case 'task.start': {
+            case 'start': {
                 $flags    = self::parseFlags($rest);
                 $existing = State::readPointer($flags['agent'], $flags['task_label']);
                 $runId    = $existing ?: self::genRunId();
@@ -277,7 +276,7 @@ class Cli
                 break;
             }
 
-            case 'task.progress': {
+            case 'progress': {
                 $pos   = self::positionalArgs($rest);
                 $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
@@ -287,7 +286,7 @@ class Cli
                 break;
             }
 
-            case 'task.stop': {
+            case 'stop': {
                 $flags = self::parseFlags($rest);
                 $runId = self::resolveRunId($flags);
                 self::sendNotify('task.stopped', 'Task stopped', $flags, $runId);
@@ -295,7 +294,7 @@ class Cli
                 break;
             }
 
-            case 'task.pause': {
+            case 'pause': {
                 $pos       = self::positionalArgs($rest);
                 $msg       = $pos[0] ?? '';
                 $flags     = self::parseFlags($rest);
@@ -311,7 +310,7 @@ class Cli
                 break;
             }
 
-            case 'task.resume': {
+            case 'resume': {
                 $pos       = self::positionalArgs($rest);
                 $msg       = $pos[0] ?? '';
                 $flags     = self::parseFlags($rest);
@@ -334,7 +333,7 @@ class Cli
                 break;
             }
 
-            case 'task.wait': {
+            case 'wait': {
                 $pos       = self::positionalArgs($rest);
                 $msg       = $pos[0] ?? '';
                 $flags     = self::parseFlags($rest);
@@ -350,7 +349,7 @@ class Cli
                 break;
             }
 
-            case 'task.retry': {
+            case 'retry': {
                 $flags     = self::parseFlags($rest);
                 $runId     = self::resolveRunId($flags);
                 $stateFile = State::getFile($flags['agent'], $runId);
@@ -361,7 +360,7 @@ class Cli
                 break;
             }
 
-            case 'task.loop': {
+            case 'loop': {
                 $pos       = self::positionalArgs($rest);
                 $msg       = $pos[0] ?? '';
                 $flags     = self::parseFlags($rest);
@@ -375,7 +374,7 @@ class Cli
                 break;
             }
 
-            case 'task.error': {
+            case 'error': {
                 $pos       = self::positionalArgs($rest);
                 $msg       = $pos[0] ?? '';
                 $flags     = self::parseFlags($rest);
@@ -391,7 +390,7 @@ class Cli
                 break;
             }
 
-            case 'task.fail': {
+            case 'fail': {
                 $pos       = self::positionalArgs($rest);
                 $msg       = $pos[0] ?? '';
                 $flags     = self::parseFlags($rest);
@@ -403,7 +402,7 @@ class Cli
                 break;
             }
 
-            case 'task.timeout': {
+            case 'timeout': {
                 $pos   = self::positionalArgs($rest);
                 $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
@@ -415,7 +414,7 @@ class Cli
                 break;
             }
 
-            case 'task.cancel': {
+            case 'cancel': {
                 $pos   = self::positionalArgs($rest);
                 $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
@@ -427,7 +426,7 @@ class Cli
                 break;
             }
 
-            case 'task.terminate': {
+            case 'terminate': {
                 $pos   = self::positionalArgs($rest);
                 $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
@@ -439,7 +438,7 @@ class Cli
                 break;
             }
 
-            case 'task.complete': {
+            case 'complete': {
                 $pos   = self::positionalArgs($rest);
                 $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
@@ -574,21 +573,21 @@ Usage:
   notilens remove-agent <agent>
 
 Task Lifecycle:
-  notilens task.queue           --agent <agent> --task <label>
-  notilens task.start           --agent <agent> --task <label>
-  notilens task.progress  "msg" --agent <agent> --task <label>
-  notilens task.loop      "msg" --agent <agent> --task <label>
-  notilens task.retry           --agent <agent> --task <label>
-  notilens task.stop            --agent <agent> --task <label>
-  notilens task.pause     "msg" --agent <agent> --task <label>
-  notilens task.resume    "msg" --agent <agent> --task <label>
-  notilens task.wait      "msg" --agent <agent> --task <label>
-  notilens task.error     "msg" --agent <agent> --task <label>
-  notilens task.fail      "msg" --agent <agent> --task <label>
-  notilens task.timeout   "msg" --agent <agent> --task <label>
-  notilens task.cancel    "msg" --agent <agent> --task <label>
-  notilens task.terminate "msg" --agent <agent> --task <label>
-  notilens task.complete  "msg" --agent <agent> --task <label>
+  notilens queue           --agent <agent> --task <label>
+  notilens start           --agent <agent> --task <label>
+  notilens progress  "msg" --agent <agent> --task <label>
+  notilens loop      "msg" --agent <agent> --task <label>
+  notilens retry           --agent <agent> --task <label>
+  notilens stop            --agent <agent> --task <label>
+  notilens pause     "msg" --agent <agent> --task <label>
+  notilens resume    "msg" --agent <agent> --task <label>
+  notilens wait      "msg" --agent <agent> --task <label>
+  notilens error     "msg" --agent <agent> --task <label>
+  notilens fail      "msg" --agent <agent> --task <label>
+  notilens timeout   "msg" --agent <agent> --task <label>
+  notilens cancel    "msg" --agent <agent> --task <label>
+  notilens terminate "msg" --agent <agent> --task <label>
+  notilens complete  "msg" --agent <agent> --task <label>
 
 Output / Input:
   notilens output.generate "msg" --agent <agent> --task <label>

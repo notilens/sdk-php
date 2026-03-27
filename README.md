@@ -54,21 +54,21 @@ notilens remove-agent my-agent
 ### Task Lifecycle
 
 ```bash
-notilens task.queue    --agent my-agent --task email
-notilens task.start    --agent my-agent --task email
-notilens task.progress "Fetching data"  --agent my-agent --task email
-notilens task.loop     "Step 3 of 10"   --agent my-agent --task email
-notilens task.retry    --agent my-agent --task email
-notilens task.pause    "Rate limited"   --agent my-agent --task email
-notilens task.resume   "Resuming"       --agent my-agent --task email
-notilens task.wait     "Awaiting tool"  --agent my-agent --task email
-notilens task.stop     --agent my-agent --task email
-notilens task.complete "All done"       --agent my-agent --task email
-notilens task.error    "Step 3 failed"  --agent my-agent --task email
-notilens task.fail     "Unrecoverable"  --agent my-agent --task email
-notilens task.timeout  "Took too long"  --agent my-agent --task email
-notilens task.cancel   "User cancelled" --agent my-agent --task email
-notilens task.terminate "Out of memory" --agent my-agent --task email
+notilens queue    --agent my-agent --task email
+notilens start    --agent my-agent --task email
+notilens progress "Fetching data"  --agent my-agent --task email
+notilens loop     "Step 3 of 10"   --agent my-agent --task email
+notilens retry    --agent my-agent --task email
+notilens pause    "Rate limited"   --agent my-agent --task email
+notilens resume   "Resuming"       --agent my-agent --task email
+notilens wait     "Awaiting tool"  --agent my-agent --task email
+notilens stop     --agent my-agent --task email
+notilens complete "All done"       --agent my-agent --task email
+notilens error    "Step 3 failed"  --agent my-agent --task email
+notilens fail     "Unrecoverable"  --agent my-agent --task email
+notilens timeout  "Took too long"  --agent my-agent --task email
+notilens cancel   "User cancelled" --agent my-agent --task email
+notilens terminate "Out of memory" --agent my-agent --task email
 ```
 
 `task.start` prints the internal `run_id` to stdout.
