@@ -22,28 +22,28 @@ class Config
         file_put_contents(self::configFile(), json_encode($config, JSON_PRETTY_PRINT));
     }
 
-    public static function getAgent(string $agent): ?array
+    public static function getSource(string $name): ?array
     {
-        return self::read()[$agent] ?? null;
+        return self::read()[$name] ?? null;
     }
 
-    public static function saveAgent(string $agent, string $token, string $secret): void
+    public static function saveSource(string $name, string $token, string $secret): void
     {
         $config = self::read();
-        $config[$agent] = ['token' => $token, 'secret' => $secret];
+        $config[$name] = ['token' => $token, 'secret' => $secret];
         self::write($config);
     }
 
-    public static function removeAgent(string $agent): bool
+    public static function removeSource(string $name): bool
     {
         $config = self::read();
-        if (!isset($config[$agent])) return false;
-        unset($config[$agent]);
+        if (!isset($config[$name])) return false;
+        unset($config[$name]);
         self::write($config);
         return true;
     }
 
-    public static function listAgents(): array
+    public static function listSources(): array
     {
         return array_keys(self::read());
     }

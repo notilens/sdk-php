@@ -12,7 +12,7 @@ class Run
         public readonly string    $label,
         public readonly string    $runId,
     ) {
-        $this->stateFile = State::getFile($agent->getAgent(), $runId);
+        $this->stateFile = State::getFile($agent->getName(), $runId);
     }
 
     // ── Metrics ───────────────────────────────────────────────────────────────
@@ -42,7 +42,7 @@ class Run
     public function queue(): self
     {
         State::write($this->stateFile, [
-            'agent'          => $this->agent->getAgent(),
+            'agent'          => $this->agent->getName(),
             'task'           => $this->label,
             'run_id'         => $this->runId,
             'queued_at'      => (int)(microtime(true) * 1000),
@@ -66,7 +66,7 @@ class Run
             State::update($this->stateFile, ['start_time' => $now]);
         } else {
             State::write($this->stateFile, [
-                'agent'          => $this->agent->getAgent(),
+                'agent'          => $this->agent->getName(),
                 'task'           => $this->label,
                 'run_id'         => $this->runId,
                 'start_time'     => $now,
@@ -83,10 +83,7 @@ class Run
         return $this;
     }
 
-    public function progress(string $message): void
-    {
-        $this->send('task.progress', $message);
-    }
+    public function progress(string $message): void { $this->send('task.progress', $message); }
 
     public function loop(string $message): void
     {
@@ -139,10 +136,7 @@ class Run
         $this->send('task.waiting', $message);
     }
 
-    public function stop(): void
-    {
-        $this->send('task.stopped', 'Task stopped');
-    }
+    public function stop(): void    { $this->send('task.stopped',  'Task stopped'); }
 
     public function error(string $message): void
     {
@@ -154,47 +148,43 @@ class Run
         $this->send('task.error', $message);
     }
 
-    public function complete(string $message): void
-    {
-        $this->send('task.completed', $message);
-        $this->terminal();
-    }
-
-    public function fail(string $message): void
-    {
-        $this->send('task.failed', $message);
-        $this->terminal();
-    }
-
-    public function timeout(string $message): void
-    {
-        $this->send('task.timeout', $message);
-        $this->terminal();
-    }
-
-    public function cancel(string $message): void
-    {
-        $this->send('task.cancelled', $message);
-        $this->terminal();
-    }
-
-    public function terminate(string $message): void
-    {
-        $this->send('task.terminated', $message);
-        $this->terminal();
-    }
+    public function complete(string $message): void  { $this->send('task.completed',  $message); $this->terminal(); }
+    public function fail(string $message): void      { $this->send('task.failed',      $message); $this->terminal(); }
+    public function timeout(string $message): void   { $this->send('task.timeout',     $message); $this->terminal(); }
+    public function cancel(string $message): void    { $this->send('task.cancelled',   $message); $this->terminal(); }
+    public function terminate(string $message): void { $this->send('task.terminated',  $message); $this->terminal(); }
 
     // ── Input / Output ────────────────────────────────────────────────────────
 
-    public function inputRequired(string $message): void  { $this->send('input.required',  $message); }
-    public function inputApproved(string $message): void  { $this->send('input.approved',  $message); }
-    public function inputRejected(string $message): void  { $this->send('input.rejected',  $message); }
+    public function inputRequired(string $message): void   { $this->send('input.required',   $message); }
+    public function inputApproved(string $message): void   { $this->send('input.approved',   $message); }
+    public function inputRejected(string $message): void   { $this->send('input.rejected',   $message); }
     public function outputGenerated(string $message): void { $this->send('output.generated', $message); }
-    public function outputFailed(string $message): void   { $this->send('output.failed',   $message); }
+    public function outputFailed(string $message): void    { $this->send('output.failed',    $message); }
+
+    // ── Track / Notify ────────────────────────────────────────────────────────
 
     public function track(string $event, string $message, array $meta = [], string $level = 'info'): void
     {
         $this->send($event, $message, $meta, $level);
+    }
+
+    public function notify(
+        string $event,
+        string $message,
+        string $level       = 'info',
+        array  $meta        = [],
+        string $imageUrl    = '',
+        string $openUrl     = '',
+        string $downloadUrl = '',
+        string $tags        = '',
+    ): void {
+        $extra = $meta;
+        if ($imageUrl)    $extra['image_url']    = $imageUrl;
+        if ($openUrl)     $extra['open_url']     = $openUrl;
+        if ($downloadUrl) $extra['download_url'] = $downloadUrl;
+        if ($tags)        $extra['tags']         = $tags;
+        $this->send($event, $message, $extra, $level);
     }
 
     // ── Internal ──────────────────────────────────────────────────────────────
@@ -207,6 +197,6 @@ class Run
     private function terminal(): void
     {
         State::delete($this->stateFile);
-        State::deletePointer($this->agent->getAgent(), $this->label);
+        State::deletePointer($this->agent->getName(), $this->label);
     }
 }

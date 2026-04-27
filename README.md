@@ -1,6 +1,6 @@
 # NotiLens
 
-Send notifications from AI agents, background jobs, workflows, and any PHP project to [NotiLens](https://www.notilens.com).
+Send alerts to NotiLens from PHP scripts, apps, and AI agents.
 
 Two ways to use it — pick one or both:
 
@@ -23,52 +23,64 @@ composer require notilens/notilens
 
 # CLI
 
-## Setup
+## 1. Setup
 
 Get your token and secret from the [NotiLens dashboard](https://www.notilens.com).
 
 ```bash
-notilens init --agent my-agent --token YOUR_TOKEN --secret YOUR_SECRET
+notilens init --name my-app --token YOUR_TOKEN --secret YOUR_SECRET
 ```
 
 This saves credentials to `~/.notilens_config.json`. All future commands read from there — no need to pass token/secret again.
 
-**Multiple agents** (each agent notifies a different topic):
+**Multiple sources** (each notifies a different topic):
 ```bash
-notilens init --agent scraper --token TOKEN_A --secret SECRET_A
-notilens init --agent mailer  --token TOKEN_B --secret SECRET_B
+notilens init --name scraper --token TOKEN_A --secret SECRET_A
+notilens init --name mailer  --token TOKEN_B --secret SECRET_B
 ```
 
-**List / remove agents:**
+**List / remove:**
 ```bash
-notilens agents
-notilens remove-agent my-agent
+notilens sources
+notilens remove-source my-app
 ```
 
 ---
 
-## Commands
+## 2. Notify
+
+The simplest way to send a notification — no task or run context needed:
+
+```bash
+notilens notify order.placed    "Order #1234"      --name my-app
+notilens notify disk.space.full "Only 1GB left"    --name my-app --type warning
+notilens notify report.ready    "Report is ready"  --name my-app --download_url https://example.com/report.pdf
+```
+
+---
+
+## 3. Commands
 
 `--task` is a semantic label (e.g. `email`, `report`). Each `task.start` creates an isolated run internally — concurrent executions of the same label never conflict.
 
 ### Task Lifecycle
 
 ```bash
-notilens queue    --agent my-agent --task email
-notilens start    --agent my-agent --task email
-notilens progress "Fetching data"  --agent my-agent --task email
-notilens loop     "Step 3 of 10"   --agent my-agent --task email
-notilens retry    --agent my-agent --task email
-notilens pause    "Rate limited"   --agent my-agent --task email
-notilens resume   "Resuming"       --agent my-agent --task email
-notilens wait     "Awaiting tool"  --agent my-agent --task email
-notilens stop     --agent my-agent --task email
-notilens complete "All done"       --agent my-agent --task email
-notilens error    "Step 3 failed"  --agent my-agent --task email
-notilens fail     "Unrecoverable"  --agent my-agent --task email
-notilens timeout  "Took too long"  --agent my-agent --task email
-notilens cancel   "User cancelled" --agent my-agent --task email
-notilens terminate "Out of memory" --agent my-agent --task email
+notilens queue    --name my-app --task email
+notilens start    --name my-app --task email
+notilens progress "Fetching data"  --name my-app --task email
+notilens loop     "Step 3 of 10"   --name my-app --task email
+notilens retry    --name my-app --task email
+notilens pause    "Rate limited"   --name my-app --task email
+notilens resume   "Resuming"       --name my-app --task email
+notilens wait     "Awaiting tool"  --name my-app --task email
+notilens stop     --name my-app --task email
+notilens complete "All done"       --name my-app --task email
+notilens error    "Step 3 failed"  --name my-app --task email
+notilens fail     "Unrecoverable"  --name my-app --task email
+notilens timeout  "Took too long"  --name my-app --task email
+notilens cancel   "User cancelled" --name my-app --task email
+notilens terminate "Out of memory" --name my-app --task email
 ```
 
 `task.start` prints the internal `run_id` to stdout.
@@ -76,64 +88,86 @@ notilens terminate "Out of memory" --agent my-agent --task email
 ### Output Events
 
 ```bash
-notilens output.generate "Report ready"     --agent my-agent --task email
-notilens output.fail     "Model unavailable" --agent my-agent --task email
+notilens output.generate "Report ready"     --name my-app --task email
+notilens output.fail     "Model unavailable" --name my-app --task email
 ```
 
 ### Input / Human-in-the-loop
 
 ```bash
-notilens input.required "Please confirm" --agent my-agent --task email
-notilens input.approve  "Confirmed"      --agent my-agent --task email
-notilens input.reject   "Rejected"       --agent my-agent --task email
+notilens input.required "Please confirm" --name my-app --task email
+notilens input.approve  "Confirmed"      --name my-app --task email
+notilens input.reject   "Rejected"       --name my-app --task email
 ```
 
 ### Metrics
 
 ```bash
-notilens metric tokens=512 cost=0.003 --agent my-agent --task email
-notilens metric.reset tokens          --agent my-agent --task email
-notilens metric.reset                 --agent my-agent --task email
+notilens metric tokens=512 cost=0.003 --name my-app --task email
+notilens metric.reset tokens          --name my-app --task email
+notilens metric.reset                 --name my-app --task email
 ```
 
 ### Custom Events
 
 ```bash
-notilens track order.placed "Order #1234" --agent my-agent
+notilens track order.placed "Order #1234" --name my-app
 ```
 
 ---
 
 # SDK
 
-## Setup
+## 1. Setup
 
 ```php
 use NotiLens\NotiLens;
 
 // Pass credentials directly
-$agent = NotiLens::init('my-agent', token: 'YOUR_TOKEN', secret: 'YOUR_SECRET');
+$nl = NotiLens::init('my-app', token: 'YOUR_TOKEN', secret: 'YOUR_SECRET');
 
 // Or via env vars: NOTILENS_TOKEN / NOTILENS_SECRET
-$agent = NotiLens::init('my-agent');
+$nl = NotiLens::init('my-app');
 
 // All options
-$agent = NotiLens::init(
-    agent:    'my-agent',
+$nl = NotiLens::init(
+    name:     'my-app',
     token:    'YOUR_TOKEN',   // required (or env var)
     secret:   'YOUR_SECRET',  // required (or env var)
     stateTtl: 86400,          // optional — orphaned state TTL in seconds (default: 86400 / 24h)
 );
 ```
 
-## Task Lifecycle
+---
 
-`$agent->task($label)` creates a `Run` — an isolated execution context. Multiple concurrent runs of the same label never conflict.
+## 2. Notify
+
+The simplest way to send a notification — no task or run context needed:
 
 ```php
-$run = $agent->task('email');  // create a run for the "email" task
-$run->queue();                  // optional — pre-start signal
-$run->start();                  // begin the run
+$nl->notify('order.placed', 'Order #1234');
+$nl->notify('disk.space.full', 'Only 1GB left', level: 'warning');
+$nl->notify('report.ready', 'Your report is ready',
+    downloadUrl: 'https://example.com/report.pdf',
+    tags: 'report,weekly',
+);
+
+// Also available on a run
+$run->notify('deploy.done', 'Deployed to production',
+    openUrl: 'https://example.com/deploy/123',
+);
+```
+
+---
+
+## 3. Task Lifecycle
+
+`$nl->task($label)` creates a `Run` — an isolated execution context. Multiple concurrent runs of the same label never conflict.
+
+```php
+$run = $nl->task('email');  // create a run for the "email" task
+$run->queue();               // optional — pre-start signal
+$run->start();               // begin the run
 
 $run->progress('Fetching data');
 $run->loop('Processing item 42');
@@ -153,7 +187,9 @@ $run->cancel('Cancelled by user');
 $run->terminate('Force-killed');
 ```
 
-## Input / Output
+---
+
+## 4. Input / Output
 
 ```php
 $run->inputRequired('Approve deployment?');
@@ -164,7 +200,9 @@ $run->outputGenerated('Report ready');
 $run->outputFailed('Rendering failed');
 ```
 
-## Metrics
+---
+
+## 5. Metrics
 
 ```php
 $run->metric('tokens', 512);
@@ -187,22 +225,26 @@ NotiLens automatically tracks task timing. These fields are included in every no
 | `wait_ms` | Cumulative time spent waiting |
 | `active_ms` | Active time (`total − pause − wait`) |
 
-## Generic Events
+---
+
+## 6. Custom Events
 
 ```php
 $run->track('custom.event', 'Something happened');
 $run->track('custom.event', 'With meta', ['key' => 'value']);
 
-$agent->track('app.deployed', 'v2.3.1 deployed');
+$nl->track('app.deployed', 'v2.3.1 deployed');
 ```
+
+---
 
 ## Full Example
 
 ```php
 use NotiLens\NotiLens;
 
-$agent = NotiLens::init('summarizer', token: 'TOKEN', secret: 'SECRET');
-$run   = $agent->task('report');
+$nl  = NotiLens::init('summarizer', token: 'TOKEN', secret: 'SECRET');
+$run = $nl->task('report');
 $run->start();
 
 try {

@@ -19,7 +19,7 @@ class Cli
     private static function parseFlags(array $args): array
     {
         $flags = [
-            'agent'         => '',
+            'name'          => '',
             'task_label'    => '',
             'type'          => '',
             'meta'          => [],
@@ -34,7 +34,7 @@ class Cli
         $count = count($args);
         while ($i < $count) {
             switch ($args[$i]) {
-                case '--agent':         $flags['agent']         = $args[++$i] ?? ''; break;
+                case '--name':          $flags['name']          = $args[++$i] ?? ''; break;
                 case '--task':          $flags['task_label']    = $args[++$i] ?? ''; break;
                 case '--type':          $flags['type']          = $args[++$i] ?? ''; break;
                 case '--image_url':     $flags['image_url']     = $args[++$i] ?? ''; break;
@@ -53,8 +53,8 @@ class Cli
             $i++;
         }
 
-        if (!$flags['agent']) {
-            fwrite(STDERR, "❌ --agent is required\n");
+        if (!$flags['name']) {
+            fwrite(STDERR, "❌ --name is required\n");
             exit(1);
         }
 
@@ -63,10 +63,10 @@ class Cli
 
     private static function resolveRunId(array $flags): string
     {
-        $runId = State::readPointer($flags['agent'], $flags['task_label']);
+        $runId = State::readPointer($flags['name'], $flags['task_label']);
         if (!$runId) {
             $label = $flags['task_label'] ?: '(no --task)';
-            fwrite(STDERR, "❌ No active run for agent '{$flags['agent']}' task '{$label}'. Run start first.\n");
+            fwrite(STDERR, "❌ No active run for '{$flags['name']}' task '{$label}'. Run start first.\n");
             exit(1);
         }
         return $runId;
@@ -103,13 +103,13 @@ class Cli
 
     private static function sendNotify(string $event, string $message, array $flags, string $runId): void
     {
-        $conf = Config::getAgent($flags['agent']);
+        $conf = Config::getSource($flags['name']);
         if (!$conf || empty($conf['token']) || empty($conf['secret'])) {
-            fwrite(STDERR, "❌ Agent '{$flags['agent']}' not configured. Run: notilens init --agent {$flags['agent']} --token TOKEN --secret SECRET\n");
+            fwrite(STDERR, "❌ '{$flags['name']}' not configured. Run: notilens init --name {$flags['name']} --token TOKEN --secret SECRET\n");
             exit(1);
         }
 
-        $stateFile  = State::getFile($flags['agent'], $runId);
+        $stateFile  = State::getFile($flags['name'], $runId);
         $state      = State::read($stateFile);
         $now        = (int)(microtime(true) * 1000);
         $startTime  = $state['start_time']     ?? 0;
@@ -125,7 +125,7 @@ class Cli
         $meta = [
             'run_id' => $runId,
             'task'   => $flags['task_label'],
-            'agent'  => $flags['agent'],
+            'agent'  => $flags['name'],  // kept as "agent" for backend compatibility
         ];
         if ($flags['image_url'])     $meta['image_url']     = $flags['image_url'];
         if ($flags['open_url'])      $meta['open_url']      = $flags['open_url'];
@@ -152,10 +152,10 @@ class Cli
 
         $payload = [
             'event'         => $event,
-            'title'         => "{$flags['agent']} | {$flags['task_label']} | {$event}",
+            'title'         => "{$flags['name']} | {$flags['task_label']} | {$event}",
             'message'       => $message,
             'type'          => $finalType,
-            'agent'         => $flags['agent'],
+            'agent'         => $flags['name'],  // kept as "agent" for backend compatibility
             'task_id'       => $flags['task_label'],
             'is_actionable' => $finalActionable,
             'image_url'     => $flags['image_url'],
@@ -188,49 +188,85 @@ class Cli
         switch ($command) {
 
             case 'init':
-                $token = $secret = $agent = '';
+                $token = $secret = $name = '';
                 for ($i = 0; $i < count($rest); $i++) {
                     match ($rest[$i]) {
-                        '--agent'  => $agent  = $rest[++$i] ?? '',
+                        '--name'   => $name   = $rest[++$i] ?? '',
                         '--token'  => $token  = $rest[++$i] ?? '',
                         '--secret' => $secret = $rest[++$i] ?? '',
                         default    => null,
                     };
                 }
-                if (!$agent || !$token || !$secret) {
-                    fwrite(STDERR, "Usage: notilens init --agent <name> --token <token> --secret <secret>\n");
+                if (!$name || !$token || !$secret) {
+                    fwrite(STDERR, "Usage: notilens init --name <name> --token <token> --secret <secret>\n");
                     exit(1);
                 }
-                Config::saveAgent($agent, $token, $secret);
-                echo "✔ Agent '{$agent}' saved\n";
+                Config::saveSource($name, $token, $secret);
+                echo "✔ '{$name}' saved\n";
                 break;
 
-            case 'agents':
-                $agents = Config::listAgents();
+            case 'sources':
+                $agents = Config::listSources();
                 if (!$agents) {
-                    echo "No agents configured.\n";
+                    echo "No sources configured.\n";
                 } else {
                     foreach ($agents as $a) echo "  {$a}\n";
                 }
                 break;
 
-            case 'remove-agent':
-                $agent = $rest[0] ?? '';
-                if (!$agent) {
-                    fwrite(STDERR, "Usage: notilens remove-agent <agent>\n");
+            case 'remove-source':
+                $name = $rest[0] ?? '';
+                if (!$name) {
+                    fwrite(STDERR, "Usage: notilens remove-source <name>\n");
                     exit(1);
                 }
-                Config::removeAgent($agent)
-                    ? print("✔ Agent '{$agent}' removed\n")
-                    : fwrite(STDERR, "Agent '{$agent}' not found\n");
+                Config::removeSource($name)
+                    ? print("✔ '{$name}' removed\n")
+                    : fwrite(STDERR, "'{$name}' not found\n");
                 break;
+
+            case 'notify': {
+                $pos   = self::positionalArgs($rest);
+                $event = $pos[0] ?? '';
+                $msg   = $pos[1] ?? '';
+                if (!$event) {
+                    fwrite(STDERR, "Usage: notilens notify <event> \"msg\" --name <name>\n");
+                    exit(1);
+                }
+                $flags = self::parseFlags(array_slice($rest, 2));
+                $conf  = Config::getSource($flags['name']);
+                if (!$conf || empty($conf['token']) || empty($conf['secret'])) {
+                    fwrite(STDERR, "❌ '{$flags['name']}' not configured. Run: notilens init --name {$flags['name']} --token TOKEN --secret SECRET\n");
+                    exit(1);
+                }
+                $payload = [
+                    'event'         => $event,
+                    'title'         => "{$flags['name']} | {$event}",
+                    'message'       => $msg,
+                    'type'          => self::validateType($flags['type']) ?: 'info',
+                    'agent'         => $flags['name'],
+                    'task_id'       => '',
+                    'is_actionable' => false,
+                    'image_url'     => $flags['image_url'],
+                    'open_url'      => $flags['open_url'],
+                    'download_url'  => $flags['download_url'],
+                    'tags'          => $flags['tags'],
+                    'ts'            => microtime(true),
+                    'meta'          => $flags['meta'],
+                ];
+                try {
+                    Notify::send($conf['token'], $conf['secret'], $payload);
+                } catch (\Throwable) {}
+                echo "📡 Notified: {$event}\n";
+                break;
+            }
 
             case 'queue': {
                 $flags     = self::parseFlags($rest);
                 $runId     = self::genRunId();
-                $stateFile = State::getFile($flags['agent'], $runId);
+                $stateFile = State::getFile($flags['name'], $runId);
                 State::write($stateFile, [
-                    'agent'          => $flags['agent'],
+                    'agent'          => $flags['name'],
                     'task'           => $flags['task_label'],
                     'run_id'         => $runId,
                     'queued_at'      => (int)(microtime(true) * 1000),
@@ -242,7 +278,7 @@ class Cli
                     'pause_total_ms' => 0,
                     'wait_total_ms'  => 0,
                 ]);
-                State::writePointer($flags['agent'], $flags['task_label'], $runId);
+                State::writePointer($flags['name'], $flags['task_label'], $runId);
                 self::sendNotify('task.queued', 'Task queued', $flags, $runId);
                 echo $runId . "\n";
                 break;
@@ -250,14 +286,14 @@ class Cli
 
             case 'start': {
                 $flags    = self::parseFlags($rest);
-                $existing = State::readPointer($flags['agent'], $flags['task_label']);
+                $existing = State::readPointer($flags['name'], $flags['task_label']);
                 $runId    = $existing ?: self::genRunId();
-                $sf       = State::getFile($flags['agent'], $runId);
+                $sf       = State::getFile($flags['name'], $runId);
                 if ($existing) {
                     State::update($sf, ['start_time' => (int)(microtime(true) * 1000)]);
                 } else {
                     State::write($sf, [
-                        'agent'          => $flags['agent'],
+                        'agent'          => $flags['name'],
                         'task'           => $flags['task_label'],
                         'run_id'         => $runId,
                         'start_time'     => (int)(microtime(true) * 1000),
@@ -269,7 +305,7 @@ class Cli
                         'pause_total_ms' => 0,
                         'wait_total_ms'  => 0,
                     ]);
-                    State::writePointer($flags['agent'], $flags['task_label'], $runId);
+                    State::writePointer($flags['name'], $flags['task_label'], $runId);
                 }
                 self::sendNotify('task.started', 'Task started', $flags, $runId);
                 echo $runId . "\n";
@@ -282,7 +318,7 @@ class Cli
                 $flags = self::parseFlags($rest);
                 $runId = self::resolveRunId($flags);
                 self::sendNotify('task.progress', $msg, $flags, $runId);
-                echo "⏳ Progress: {$flags['agent']} | {$flags['task_label']}\n";
+                echo "⏳ Progress: {$flags['name']} | {$flags['task_label']}\n";
                 break;
             }
 
@@ -290,7 +326,7 @@ class Cli
                 $flags = self::parseFlags($rest);
                 $runId = self::resolveRunId($flags);
                 self::sendNotify('task.stopped', 'Task stopped', $flags, $runId);
-                echo "⏹  Stopped: {$flags['agent']} | {$flags['task_label']}\n";
+                echo "⏹  Stopped: {$flags['name']} | {$flags['task_label']}\n";
                 break;
             }
 
@@ -299,14 +335,14 @@ class Cli
                 $msg       = $pos[0] ?? '';
                 $flags     = self::parseFlags($rest);
                 $runId     = self::resolveRunId($flags);
-                $stateFile = State::getFile($flags['agent'], $runId);
+                $stateFile = State::getFile($flags['name'], $runId);
                 $state     = State::read($stateFile);
                 State::update($stateFile, [
                     'paused_at'   => (int)(microtime(true) * 1000),
                     'pause_count' => ($state['pause_count'] ?? 0) + 1,
                 ]);
                 self::sendNotify('task.paused', $msg, $flags, $runId);
-                echo "⏸  Paused: {$flags['agent']} | {$flags['task_label']}\n";
+                echo "⏸  Paused: {$flags['name']} | {$flags['task_label']}\n";
                 break;
             }
 
@@ -315,7 +351,7 @@ class Cli
                 $msg       = $pos[0] ?? '';
                 $flags     = self::parseFlags($rest);
                 $runId     = self::resolveRunId($flags);
-                $stateFile = State::getFile($flags['agent'], $runId);
+                $stateFile = State::getFile($flags['name'], $runId);
                 $state     = State::read($stateFile);
                 $now       = (int)(microtime(true) * 1000);
                 $updates   = [];
@@ -329,7 +365,7 @@ class Cli
                 }
                 if (!empty($updates)) State::update($stateFile, $updates);
                 self::sendNotify('task.resumed', $msg, $flags, $runId);
-                echo "▶️  Resumed: {$flags['agent']} | {$flags['task_label']}\n";
+                echo "▶️  Resumed: {$flags['name']} | {$flags['task_label']}\n";
                 break;
             }
 
@@ -338,25 +374,25 @@ class Cli
                 $msg       = $pos[0] ?? '';
                 $flags     = self::parseFlags($rest);
                 $runId     = self::resolveRunId($flags);
-                $stateFile = State::getFile($flags['agent'], $runId);
+                $stateFile = State::getFile($flags['name'], $runId);
                 $state     = State::read($stateFile);
                 State::update($stateFile, [
                     'wait_at'    => (int)(microtime(true) * 1000),
                     'wait_count' => ($state['wait_count'] ?? 0) + 1,
                 ]);
                 self::sendNotify('task.waiting', $msg, $flags, $runId);
-                echo "⏳ Waiting: {$flags['agent']} | {$flags['task_label']}\n";
+                echo "⏳ Waiting: {$flags['name']} | {$flags['task_label']}\n";
                 break;
             }
 
             case 'retry': {
                 $flags     = self::parseFlags($rest);
                 $runId     = self::resolveRunId($flags);
-                $stateFile = State::getFile($flags['agent'], $runId);
+                $stateFile = State::getFile($flags['name'], $runId);
                 $state     = State::read($stateFile);
                 State::update($stateFile, ['retry_count' => ($state['retry_count'] ?? 0) + 1]);
                 self::sendNotify('task.retry', 'Retrying task', $flags, $runId);
-                echo "🔁 Retry: {$flags['agent']} | {$flags['task_label']}\n";
+                echo "🔁 Retry: {$flags['name']} | {$flags['task_label']}\n";
                 break;
             }
 
@@ -365,12 +401,12 @@ class Cli
                 $msg       = $pos[0] ?? '';
                 $flags     = self::parseFlags($rest);
                 $runId     = self::resolveRunId($flags);
-                $stateFile = State::getFile($flags['agent'], $runId);
+                $stateFile = State::getFile($flags['name'], $runId);
                 $state     = State::read($stateFile);
                 $lc        = ($state['loop_count'] ?? 0) + 1;
                 State::update($stateFile, ['loop_count' => $lc]);
                 self::sendNotify('task.loop', $msg, $flags, $runId);
-                echo "🔄 Loop ({$lc}): {$flags['agent']} | {$flags['task_label']}\n";
+                echo "🔄 Loop ({$lc}): {$flags['name']} | {$flags['task_label']}\n";
                 break;
             }
 
@@ -379,7 +415,7 @@ class Cli
                 $msg       = $pos[0] ?? '';
                 $flags     = self::parseFlags($rest);
                 $runId     = self::resolveRunId($flags);
-                $stateFile = State::getFile($flags['agent'], $runId);
+                $stateFile = State::getFile($flags['name'], $runId);
                 $state     = State::read($stateFile);
                 State::update($stateFile, [
                     'last_error'  => $msg,
@@ -391,14 +427,14 @@ class Cli
             }
 
             case 'fail': {
-                $pos       = self::positionalArgs($rest);
-                $msg       = $pos[0] ?? '';
-                $flags     = self::parseFlags($rest);
-                $runId     = self::resolveRunId($flags);
+                $pos   = self::positionalArgs($rest);
+                $msg   = $pos[0] ?? '';
+                $flags = self::parseFlags($rest);
+                $runId = self::resolveRunId($flags);
                 self::sendNotify('task.failed', $msg, $flags, $runId);
-                State::delete(State::getFile($flags['agent'], $runId));
-                State::deletePointer($flags['agent'], $flags['task_label']);
-                echo "💥 Failed: {$flags['agent']} | {$flags['task_label']}\n";
+                State::delete(State::getFile($flags['name'], $runId));
+                State::deletePointer($flags['name'], $flags['task_label']);
+                echo "💥 Failed: {$flags['name']} | {$flags['task_label']}\n";
                 break;
             }
 
@@ -408,9 +444,9 @@ class Cli
                 $flags = self::parseFlags($rest);
                 $runId = self::resolveRunId($flags);
                 self::sendNotify('task.timeout', $msg, $flags, $runId);
-                State::delete(State::getFile($flags['agent'], $runId));
-                State::deletePointer($flags['agent'], $flags['task_label']);
-                echo "⏰ Timeout: {$flags['agent']} | {$flags['task_label']}\n";
+                State::delete(State::getFile($flags['name'], $runId));
+                State::deletePointer($flags['name'], $flags['task_label']);
+                echo "⏰ Timeout: {$flags['name']} | {$flags['task_label']}\n";
                 break;
             }
 
@@ -420,9 +456,9 @@ class Cli
                 $flags = self::parseFlags($rest);
                 $runId = self::resolveRunId($flags);
                 self::sendNotify('task.cancelled', $msg, $flags, $runId);
-                State::delete(State::getFile($flags['agent'], $runId));
-                State::deletePointer($flags['agent'], $flags['task_label']);
-                echo "🚫 Cancelled: {$flags['agent']} | {$flags['task_label']}\n";
+                State::delete(State::getFile($flags['name'], $runId));
+                State::deletePointer($flags['name'], $flags['task_label']);
+                echo "🚫 Cancelled: {$flags['name']} | {$flags['task_label']}\n";
                 break;
             }
 
@@ -432,9 +468,9 @@ class Cli
                 $flags = self::parseFlags($rest);
                 $runId = self::resolveRunId($flags);
                 self::sendNotify('task.terminated', $msg, $flags, $runId);
-                State::delete(State::getFile($flags['agent'], $runId));
-                State::deletePointer($flags['agent'], $flags['task_label']);
-                echo "⚠️  Terminated: {$flags['agent']} | {$flags['task_label']}\n";
+                State::delete(State::getFile($flags['name'], $runId));
+                State::deletePointer($flags['name'], $flags['task_label']);
+                echo "⚠️  Terminated: {$flags['name']} | {$flags['task_label']}\n";
                 break;
             }
 
@@ -444,9 +480,9 @@ class Cli
                 $flags = self::parseFlags($rest);
                 $runId = self::resolveRunId($flags);
                 self::sendNotify('task.completed', $msg, $flags, $runId);
-                State::delete(State::getFile($flags['agent'], $runId));
-                State::deletePointer($flags['agent'], $flags['task_label']);
-                echo "✅ Completed: {$flags['agent']} | {$flags['task_label']}\n";
+                State::delete(State::getFile($flags['name'], $runId));
+                State::deletePointer($flags['name'], $flags['task_label']);
+                echo "✅ Completed: {$flags['name']} | {$flags['task_label']}\n";
                 break;
             }
 
@@ -454,7 +490,7 @@ class Cli
                 $pos       = self::positionalArgs($rest);
                 $flags     = self::parseFlags($rest);
                 $runId     = self::resolveRunId($flags);
-                $stateFile = State::getFile($flags['agent'], $runId);
+                $stateFile = State::getFile($flags['name'], $runId);
                 $state     = State::read($stateFile);
                 $metrics   = $state['metrics'] ?? [];
                 foreach ($pos as $kv) {
@@ -478,7 +514,7 @@ class Cli
                 $pos       = self::positionalArgs($rest);
                 $flags     = self::parseFlags($rest);
                 $runId     = self::resolveRunId($flags);
-                $stateFile = State::getFile($flags['agent'], $runId);
+                $stateFile = State::getFile($flags['name'], $runId);
                 $state     = State::read($stateFile);
                 $key       = $pos[0] ?? null;
                 if ($key) {
@@ -495,46 +531,41 @@ class Cli
 
             case 'output.generate': {
                 $pos   = self::positionalArgs($rest);
-                $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
                 $runId = self::resolveRunId($flags);
-                self::sendNotify('output.generated', $msg, $flags, $runId);
+                self::sendNotify('output.generated', $pos[0] ?? '', $flags, $runId);
                 break;
             }
 
             case 'output.fail': {
                 $pos   = self::positionalArgs($rest);
-                $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
                 $runId = self::resolveRunId($flags);
-                self::sendNotify('output.failed', $msg, $flags, $runId);
+                self::sendNotify('output.failed', $pos[0] ?? '', $flags, $runId);
                 break;
             }
 
             case 'input.required': {
                 $pos   = self::positionalArgs($rest);
-                $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
                 $runId = self::resolveRunId($flags);
-                self::sendNotify('input.required', $msg, $flags, $runId);
+                self::sendNotify('input.required', $pos[0] ?? '', $flags, $runId);
                 break;
             }
 
             case 'input.approve': {
                 $pos   = self::positionalArgs($rest);
-                $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
                 $runId = self::resolveRunId($flags);
-                self::sendNotify('input.approved', $msg, $flags, $runId);
+                self::sendNotify('input.approved', $pos[0] ?? '', $flags, $runId);
                 break;
             }
 
             case 'input.reject': {
                 $pos   = self::positionalArgs($rest);
-                $msg   = $pos[0] ?? '';
                 $flags = self::parseFlags($rest);
                 $runId = self::resolveRunId($flags);
-                self::sendNotify('input.rejected', $msg, $flags, $runId);
+                self::sendNotify('input.rejected', $pos[0] ?? '', $flags, $runId);
                 break;
             }
 
@@ -543,7 +574,7 @@ class Cli
                 $event = $pos[0] ?? '';
                 $msg   = $pos[1] ?? '';
                 $flags = self::parseFlags(array_slice($rest, 2));
-                $runId = State::readPointer($flags['agent'], $flags['task_label']) ?: '';
+                $runId = State::readPointer($flags['name'], $flags['task_label']) ?: '';
                 self::sendNotify($event, $msg, $flags, $runId);
                 echo "📡 Tracked: {$event}\n";
                 break;
@@ -568,44 +599,47 @@ class Cli
     {
         echo <<<USAGE
 Usage:
-  notilens init --agent <name> --token <token> --secret <secret>
-  notilens agents
-  notilens remove-agent <agent>
+  notilens init --name <name> --token <token> --secret <secret>
+  notilens sources
+  notilens remove-source <name>
+
+Notify:
+  notilens notify <event> "msg" --name <name>
 
 Task Lifecycle:
-  notilens queue           --agent <agent> --task <label>
-  notilens start           --agent <agent> --task <label>
-  notilens progress  "msg" --agent <agent> --task <label>
-  notilens loop      "msg" --agent <agent> --task <label>
-  notilens retry           --agent <agent> --task <label>
-  notilens stop            --agent <agent> --task <label>
-  notilens pause     "msg" --agent <agent> --task <label>
-  notilens resume    "msg" --agent <agent> --task <label>
-  notilens wait      "msg" --agent <agent> --task <label>
-  notilens error     "msg" --agent <agent> --task <label>
-  notilens fail      "msg" --agent <agent> --task <label>
-  notilens timeout   "msg" --agent <agent> --task <label>
-  notilens cancel    "msg" --agent <agent> --task <label>
-  notilens terminate "msg" --agent <agent> --task <label>
-  notilens complete  "msg" --agent <agent> --task <label>
+  notilens queue           --name <name> --task <label>
+  notilens start           --name <name> --task <label>
+  notilens progress  "msg" --name <name> --task <label>
+  notilens loop      "msg" --name <name> --task <label>
+  notilens retry           --name <name> --task <label>
+  notilens stop            --name <name> --task <label>
+  notilens pause     "msg" --name <name> --task <label>
+  notilens resume    "msg" --name <name> --task <label>
+  notilens wait      "msg" --name <name> --task <label>
+  notilens error     "msg" --name <name> --task <label>
+  notilens fail      "msg" --name <name> --task <label>
+  notilens timeout   "msg" --name <name> --task <label>
+  notilens cancel    "msg" --name <name> --task <label>
+  notilens terminate "msg" --name <name> --task <label>
+  notilens complete  "msg" --name <name> --task <label>
 
 Output / Input:
-  notilens output.generate "msg" --agent <agent> --task <label>
-  notilens output.fail     "msg" --agent <agent> --task <label>
-  notilens input.required  "msg" --agent <agent> --task <label>
-  notilens input.approve   "msg" --agent <agent> --task <label>
-  notilens input.reject    "msg" --agent <agent> --task <label>
+  notilens output.generate "msg" --name <name> --task <label>
+  notilens output.fail     "msg" --name <name> --task <label>
+  notilens input.required  "msg" --name <name> --task <label>
+  notilens input.approve   "msg" --name <name> --task <label>
+  notilens input.reject    "msg" --name <name> --task <label>
 
 Metrics:
-  notilens metric       tokens=512 cost=0.003 --agent <agent> --task <label>
-  notilens metric.reset tokens               --agent <agent> --task <label>
-  notilens metric.reset                      --agent <agent> --task <label>
+  notilens metric       tokens=512 cost=0.003 --name <name> --task <label>
+  notilens metric.reset tokens               --name <name> --task <label>
+  notilens metric.reset                      --name <name> --task <label>
 
 Generic:
-  notilens track <event> "msg" --agent <agent> [--task <label>]
+  notilens track <event> "msg" --name <name> [--task <label>]
 
 Options:
-  --agent <name>
+  --name <name>
   --task <label>          Task label (e.g. "email", "report")
   --type success|warning|urgent|info
   --meta key=value        (repeatable)

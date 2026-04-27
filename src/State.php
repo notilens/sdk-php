@@ -10,15 +10,15 @@ class State
         return $u ?: (getenv('USER') ?: 'default');
     }
 
-    public static function getFile(string $agent, string $runId): string
+    public static function getFile(string $name, string $runId): string
     {
-        return sys_get_temp_dir() . '/notilens_' . self::user() . "_{$agent}_{$runId}.json";
+        return sys_get_temp_dir() . '/notilens_' . self::user() . "_{$name}_{$runId}.json";
     }
 
-    public static function getPointerFile(string $agent, string $label): string
+    public static function getPointerFile(string $name, string $label): string
     {
         $safeLabel = preg_replace('/[\/\\\\]/', '_', $label);
-        return sys_get_temp_dir() . '/notilens_' . self::user() . "_{$agent}_{$safeLabel}.ptr";
+        return sys_get_temp_dir() . '/notilens_' . self::user() . "_{$name}_{$safeLabel}.ptr";
     }
 
     public static function read(string $file): array
@@ -44,30 +44,30 @@ class State
         if (file_exists($file)) unlink($file);
     }
 
-    public static function readPointer(string $agent, string $label): string
+    public static function readPointer(string $name, string $label): string
     {
-        $pf = self::getPointerFile($agent, $label);
+        $pf = self::getPointerFile($name, $label);
         if (!file_exists($pf)) return '';
         return trim(file_get_contents($pf));
     }
 
-    public static function writePointer(string $agent, string $label, string $runId): void
+    public static function writePointer(string $name, string $label, string $runId): void
     {
-        file_put_contents(self::getPointerFile($agent, $label), $runId);
+        file_put_contents(self::getPointerFile($name, $label), $runId);
     }
 
-    public static function deletePointer(string $agent, string $label): void
+    public static function deletePointer(string $name, string $label): void
     {
-        $pf = self::getPointerFile($agent, $label);
+        $pf = self::getPointerFile($name, $label);
         if (file_exists($pf)) unlink($pf);
     }
 
-    public static function cleanupStale(string $agent, int $stateTtlSeconds): void
+    public static function cleanupStale(string $name, int $stateTtlSeconds): void
     {
         $user   = self::user();
         $tmp    = sys_get_temp_dir();
         $cutoff = time() - $stateTtlSeconds;
-        $prefix = "notilens_{$user}_{$agent}_";
+        $prefix = "notilens_{$user}_{$name}_";
 
         foreach (scandir($tmp) as $file) {
             if (!str_starts_with($file, $prefix)) continue;

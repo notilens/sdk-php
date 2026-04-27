@@ -1,9 +1,9 @@
 {
   "name": "notilens/notilens",
-  "version": "0.4.2",
-  "description": "NotiLens — unified SDK + CLI for AI agent notifications",
+  "version": "0.5.0",
+  "description": "NotiLens — send alerts to NotiLens from PHP scripts, apps, and AI agents",
   "type": "library",
-  "keywords": ["notilens", "ai-agent", "notifications", "monitoring", "cli"],
+  "keywords": ["notilens", "notifications", "alerts", "monitoring", "cli", "ai-agent"],
   "homepage": "https://www.notilens.com",
   "license": "MIT",
   "authors": [

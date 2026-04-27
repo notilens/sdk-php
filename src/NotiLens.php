@@ -4,25 +4,25 @@ namespace NotiLens;
 
 class NotiLens
 {
-    private string $agent;
+    private string $name;
     private string $token;
     private string $secret;
     private int    $stateTtl;
     private array  $metrics = [];
 
-    private function __construct(string $agent, string $token, string $secret, int $stateTtl)
+    private function __construct(string $name, string $token, string $secret, int $stateTtl)
     {
-        $this->agent    = $agent;
+        $this->name     = $name;
         $this->token    = $token;
         $this->secret   = $secret;
         $this->stateTtl = $stateTtl;
-        State::cleanupStale($agent, $stateTtl);
+        State::cleanupStale($name, $stateTtl);
     }
 
     // ── Factory ───────────────────────────────────────────────────────────────
 
     public static function init(
-        string  $agent,
+        string  $name,
         ?string $token    = null,
         ?string $secret   = null,
         int     $stateTtl = 86400,
@@ -31,7 +31,7 @@ class NotiLens
         $secret ??= getenv('NOTILENS_SECRET') ?: null;
 
         if (!$token || !$secret) {
-            $conf   = Config::getAgent($agent);
+            $conf   = Config::getSource($name);
             $token  ??= $conf['token']  ?? null;
             $secret ??= $conf['secret'] ?? null;
         }
@@ -40,22 +40,22 @@ class NotiLens
             throw new \InvalidArgumentException(
                 "NotiLens: token and secret are required. Pass them directly or set " .
                 "NOTILENS_TOKEN / NOTILENS_SECRET env vars, or run: " .
-                "notilens init --agent {$agent} --token TOKEN --secret SECRET"
+                "notilens init --name {$name} --token TOKEN --secret SECRET"
             );
         }
 
-        return new self($agent, $token, $secret, $stateTtl);
+        return new self($name, $token, $secret, $stateTtl);
     }
 
     // ── Task factory ──────────────────────────────────────────────────────────
 
     public function task(string $label): Run
     {
-        State::cleanupStale($this->agent, $this->stateTtl);
+        State::cleanupStale($this->name, $this->stateTtl);
         return new Run($this, $label, $this->genRunId());
     }
 
-    // ── Agent-level metrics ───────────────────────────────────────────────────
+    // ── Metrics ───────────────────────────────────────────────────────────────
 
     public function metric(string $key, int|float|string $value): self
     {
@@ -77,16 +77,34 @@ class NotiLens
         return $this;
     }
 
-    // ── Generic track ─────────────────────────────────────────────────────────
+    // ── Track / Notify ────────────────────────────────────────────────────────
 
     public function track(string $event, string $message, array $meta = [], string $level = 'info'): void
     {
         $this->sendPayload($event, $message, '', '', '', $this->metrics, $meta, $level);
     }
 
+    public function notify(
+        string $event,
+        string $message,
+        string $level       = 'info',
+        array  $meta        = [],
+        string $imageUrl    = '',
+        string $openUrl     = '',
+        string $downloadUrl = '',
+        string $tags        = '',
+    ): void {
+        $extra = $meta;
+        if ($imageUrl)    $extra['image_url']    = $imageUrl;
+        if ($openUrl)     $extra['open_url']     = $openUrl;
+        if ($downloadUrl) $extra['download_url'] = $downloadUrl;
+        if ($tags)        $extra['tags']         = $tags;
+        $this->sendPayload($event, $message, '', '', '', $this->metrics, $extra, $level);
+    }
+
     // ── Accessors ─────────────────────────────────────────────────────────────
 
-    public function getAgent(): string { return $this->agent; }
+    public function getName(): string { return $this->name; }
 
     // ── Internals ─────────────────────────────────────────────────────────────
 
@@ -127,11 +145,10 @@ class NotiLens
             $ntype = 'warning';
         }
 
-        $meta = ['agent' => $this->agent];
+        $meta = ['agent' => $this->name];  // kept as "agent" for backend compatibility
         if ($runId) $meta['run_id'] = $runId;
         if ($label) $meta['task']   = $label;
 
-        // Compute duration fields from state
         if ($stateFile) {
             $s          = State::read($stateFile);
             $now        = (int)(microtime(true) * 1000);
@@ -162,15 +179,15 @@ class NotiLens
         $meta = array_merge($meta, $extraMeta);
 
         $title = $label
-            ? "{$this->agent} | {$label} | {$event}"
-            : "{$this->agent} | {$event}";
+            ? "{$this->name} | {$label} | {$event}"
+            : "{$this->name} | {$event}";
 
         $payload = [
             'event'         => $event,
             'title'         => $title,
             'message'       => $message,
             'type'          => $ntype,
-            'agent'         => $this->agent,
+            'agent'         => $this->name,  // kept as "agent" for backend compatibility
             'task_id'       => $label,
             'is_actionable' => in_array($event, self::$actionableEvents, true),
             'image_url'     => $extraMeta['image_url']    ?? '',
