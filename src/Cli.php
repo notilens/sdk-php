@@ -28,6 +28,7 @@ class Cli
             'download_url'  => '',
             'tags'          => '',
             'is_actionable' => '',
+            'force_send'    => '',
         ];
 
         $i = 0;
@@ -42,6 +43,7 @@ class Cli
                 case '--download_url':  $flags['download_url']  = $args[++$i] ?? ''; break;
                 case '--tags':          $flags['tags']          = $args[++$i] ?? ''; break;
                 case '--is_actionable': $flags['is_actionable'] = $args[++$i] ?? ''; break;
+                case '--force_send':   $flags['force_send']   = $args[++$i] ?? ''; break;
                 case '--meta':
                     $kv = $args[++$i] ?? '';
                     $eq = strpos($kv, '=');
@@ -101,6 +103,11 @@ class Cli
 
     // ── Core send ─────────────────────────────────────────────────────────────
 
+    private static array $forceSendDefaultTrue = [
+        'task.failed', 'task.timeout', 'task.terminated',
+        'input.required', 'output.generated', 'output.failed',
+    ];
+
     private static function sendNotify(string $event, string $message, array $flags, string $runId): void
     {
         $conf = Config::getSource($flags['name']);
@@ -149,6 +156,10 @@ class Cli
         $finalActionable = $flags['is_actionable'] !== ''
             ? strtolower($flags['is_actionable']) === 'true'
             : self::getActionableDefault($event);
+        $defaultForceSend = in_array($event, self::$forceSendDefaultTrue, true);
+        $finalForceSend  = $flags['force_send'] !== ''
+            ? strtolower($flags['force_send']) === 'true'
+            : $defaultForceSend;
 
         $payload = [
             'event'         => $event,
@@ -158,6 +169,7 @@ class Cli
             'agent'         => $flags['name'],  // kept as "agent" for backend compatibility
             'task_id'       => $flags['task_label'],
             'is_actionable' => $finalActionable,
+            'force_send'    => $finalForceSend,
             'image_url'     => $flags['image_url'],
             'open_url'      => $flags['open_url'],
             'download_url'  => $flags['download_url'],
@@ -239,6 +251,9 @@ class Cli
                     fwrite(STDERR, "❌ '{$flags['name']}' not configured. Run: notilens init --name {$flags['name']} --token TOKEN --secret SECRET\n");
                     exit(1);
                 }
+                $notifyForceSend = $flags['force_send'] !== ''
+                    ? strtolower($flags['force_send']) === 'true'
+                    : true;
                 $payload = [
                     'event'         => $event,
                     'title'         => "{$flags['name']} | {$event}",
@@ -247,6 +262,7 @@ class Cli
                     'agent'         => $flags['name'],
                     'task_id'       => '',
                     'is_actionable' => false,
+                    'force_send'    => $notifyForceSend,
                     'image_url'     => $flags['image_url'],
                     'open_url'      => $flags['open_url'],
                     'download_url'  => $flags['download_url'],
@@ -648,6 +664,7 @@ Options:
   --download_url <url>
   --tags "tag1,tag2"
   --is_actionable true|false
+  --force_send true|false  Bypass ML filtering (default true for notify/fail/timeout/terminate/input.required/output.*)
 
 Other:
   notilens version

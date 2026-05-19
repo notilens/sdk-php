@@ -79,9 +79,9 @@ class NotiLens
 
     // ── Track / Notify ────────────────────────────────────────────────────────
 
-    public function track(string $event, string $message, array $meta = [], string $level = 'info'): void
+    public function track(string $event, string $message, array $meta = [], string $level = 'info', bool $forceSend = false): void
     {
-        $this->sendPayload($event, $message, '', '', '', $this->metrics, $meta, $level);
+        $this->sendPayload($event, $message, '', '', '', $this->metrics, $meta, $level, $forceSend);
     }
 
     public function notify(
@@ -93,13 +93,14 @@ class NotiLens
         string $openUrl     = '',
         string $downloadUrl = '',
         string $tags        = '',
+        bool   $forceSend   = true,
     ): void {
         $extra = $meta;
         if ($imageUrl)    $extra['image_url']    = $imageUrl;
         if ($openUrl)     $extra['open_url']     = $openUrl;
         if ($downloadUrl) $extra['download_url'] = $downloadUrl;
         if ($tags)        $extra['tags']         = $tags;
-        $this->sendPayload($event, $message, '', '', '', $this->metrics, $extra, $level);
+        $this->sendPayload($event, $message, '', '', '', $this->metrics, $extra, $level, $forceSend);
     }
 
     // ── Accessors ─────────────────────────────────────────────────────────────
@@ -134,6 +135,7 @@ class NotiLens
         array  $runMetrics,
         array  $extraMeta = [],
         string $level = 'info',
+        bool   $forceSend = false,
     ): void {
         $ntype = in_array($event, self::$successEvents, true)
             ? 'success'
@@ -190,6 +192,7 @@ class NotiLens
             'agent'         => $this->name,  // kept as "agent" for backend compatibility
             'task_id'       => $label,
             'is_actionable' => in_array($event, self::$actionableEvents, true),
+            'force_send'    => $forceSend,
             'image_url'     => $extraMeta['image_url']    ?? '',
             'open_url'      => $extraMeta['open_url']     ?? '',
             'download_url'  => $extraMeta['download_url'] ?? '',

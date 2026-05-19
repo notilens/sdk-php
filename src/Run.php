@@ -39,7 +39,7 @@ class Run
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
-    public function queue(): self
+    public function queue(bool $forceSend = false): self
     {
         State::write($this->stateFile, [
             'agent'          => $this->agent->getName(),
@@ -54,11 +54,11 @@ class Run
             'pause_total_ms' => 0,
             'wait_total_ms'  => 0,
         ]);
-        $this->send('task.queued', 'Task queued');
+        $this->send('task.queued', 'Task queued', [], 'info', $forceSend);
         return $this;
     }
 
-    public function start(): self
+    public function start(bool $forceSend = false): self
     {
         $now      = (int)(microtime(true) * 1000);
         $existing = State::read($this->stateFile);
@@ -79,37 +79,37 @@ class Run
                 'wait_total_ms'  => 0,
             ]);
         }
-        $this->send('task.started', 'Task started');
+        $this->send('task.started', 'Task started', [], 'info', $forceSend);
         return $this;
     }
 
-    public function progress(string $message): void { $this->send('task.progress', $message); }
+    public function progress(string $message, bool $forceSend = false): void { $this->send('task.progress', $message, [], 'info', $forceSend); }
 
-    public function loop(string $message): void
+    public function loop(string $message, bool $forceSend = false): void
     {
         $state = State::read($this->stateFile);
         State::update($this->stateFile, ['loop_count' => ($state['loop_count'] ?? 0) + 1]);
-        $this->send('task.loop', $message);
+        $this->send('task.loop', $message, [], 'warning', $forceSend);
     }
 
-    public function retry(): void
+    public function retry(bool $forceSend = false): void
     {
         $state = State::read($this->stateFile);
         State::update($this->stateFile, ['retry_count' => ($state['retry_count'] ?? 0) + 1]);
-        $this->send('task.retry', 'Retrying task');
+        $this->send('task.retry', 'Retrying task', [], 'warning', $forceSend);
     }
 
-    public function pause(string $message): void
+    public function pause(string $message, bool $forceSend = false): void
     {
         $state = State::read($this->stateFile);
         State::update($this->stateFile, [
             'paused_at'   => (int)(microtime(true) * 1000),
             'pause_count' => ($state['pause_count'] ?? 0) + 1,
         ]);
-        $this->send('task.paused', $message);
+        $this->send('task.paused', $message, [], 'warning', $forceSend);
     }
 
-    public function resume(string $message): void
+    public function resume(string $message, bool $forceSend = false): void
     {
         $state   = State::read($this->stateFile);
         $now     = (int)(microtime(true) * 1000);
@@ -123,50 +123,50 @@ class Run
             $updates['wait_at']       = null;
         }
         if (!empty($updates)) State::update($this->stateFile, $updates);
-        $this->send('task.resumed', $message);
+        $this->send('task.resumed', $message, [], 'info', $forceSend);
     }
 
-    public function wait(string $message): void
+    public function wait(string $message, bool $forceSend = false): void
     {
         $state = State::read($this->stateFile);
         State::update($this->stateFile, [
             'wait_at'    => (int)(microtime(true) * 1000),
             'wait_count' => ($state['wait_count'] ?? 0) + 1,
         ]);
-        $this->send('task.waiting', $message);
+        $this->send('task.waiting', $message, [], 'warning', $forceSend);
     }
 
-    public function stop(): void    { $this->send('task.stopped',  'Task stopped'); }
+    public function stop(bool $forceSend = false): void { $this->send('task.stopped', 'Task stopped', [], 'info', $forceSend); }
 
-    public function error(string $message): void
+    public function error(string $message, bool $forceSend = false): void
     {
         $state = State::read($this->stateFile);
         State::update($this->stateFile, [
             'last_error'  => $message,
             'error_count' => ($state['error_count'] ?? 0) + 1,
         ]);
-        $this->send('task.error', $message);
+        $this->send('task.error', $message, [], 'error', $forceSend);
     }
 
-    public function complete(string $message): void  { $this->send('task.completed',  $message); $this->terminal(); }
-    public function fail(string $message): void      { $this->send('task.failed',      $message); $this->terminal(); }
-    public function timeout(string $message): void   { $this->send('task.timeout',     $message); $this->terminal(); }
-    public function cancel(string $message): void    { $this->send('task.cancelled',   $message); $this->terminal(); }
-    public function terminate(string $message): void { $this->send('task.terminated',  $message); $this->terminal(); }
+    public function complete(string $message, bool $forceSend = false): void  { $this->send('task.completed',  $message, [], 'info',    $forceSend); $this->terminal(); }
+    public function fail(string $message,      bool $forceSend = true):  void { $this->send('task.failed',     $message, [], 'error',   $forceSend); $this->terminal(); }
+    public function timeout(string $message,   bool $forceSend = true):  void { $this->send('task.timeout',    $message, [], 'error',   $forceSend); $this->terminal(); }
+    public function cancel(string $message,    bool $forceSend = false): void { $this->send('task.cancelled',  $message, [], 'warning', $forceSend); $this->terminal(); }
+    public function terminate(string $message, bool $forceSend = true):  void { $this->send('task.terminated', $message, [], 'error',   $forceSend); $this->terminal(); }
 
     // ── Input / Output ────────────────────────────────────────────────────────
 
-    public function inputRequired(string $message): void   { $this->send('input.required',   $message); }
-    public function inputApproved(string $message): void   { $this->send('input.approved',   $message); }
-    public function inputRejected(string $message): void   { $this->send('input.rejected',   $message); }
-    public function outputGenerated(string $message): void { $this->send('output.generated', $message); }
-    public function outputFailed(string $message): void    { $this->send('output.failed',    $message); }
+    public function inputRequired(string $message,   bool $forceSend = true):  void { $this->send('input.required',   $message, [], 'warning', $forceSend); }
+    public function inputApproved(string $message,   bool $forceSend = false): void { $this->send('input.approved',   $message, [], 'info',    $forceSend); }
+    public function inputRejected(string $message,   bool $forceSend = false): void { $this->send('input.rejected',   $message, [], 'warning', $forceSend); }
+    public function outputGenerated(string $message, bool $forceSend = true):  void { $this->send('output.generated', $message, [], 'info',    $forceSend); }
+    public function outputFailed(string $message,    bool $forceSend = true):  void { $this->send('output.failed',    $message, [], 'error',   $forceSend); }
 
     // ── Track / Notify ────────────────────────────────────────────────────────
 
-    public function track(string $event, string $message, array $meta = [], string $level = 'info'): void
+    public function track(string $event, string $message, array $meta = [], string $level = 'info', bool $forceSend = false): void
     {
-        $this->send($event, $message, $meta, $level);
+        $this->send($event, $message, $meta, $level, $forceSend);
     }
 
     public function notify(
@@ -178,20 +178,21 @@ class Run
         string $openUrl     = '',
         string $downloadUrl = '',
         string $tags        = '',
+        bool   $forceSend   = true,
     ): void {
         $extra = $meta;
         if ($imageUrl)    $extra['image_url']    = $imageUrl;
         if ($openUrl)     $extra['open_url']     = $openUrl;
         if ($downloadUrl) $extra['download_url'] = $downloadUrl;
         if ($tags)        $extra['tags']         = $tags;
-        $this->send($event, $message, $extra, $level);
+        $this->send($event, $message, $extra, $level, $forceSend);
     }
 
     // ── Internal ──────────────────────────────────────────────────────────────
 
-    private function send(string $event, string $message, array $extraMeta = [], string $level = 'info'): void
+    private function send(string $event, string $message, array $extraMeta = [], string $level = 'info', bool $forceSend = false): void
     {
-        $this->agent->sendPayload($event, $message, $this->runId, $this->label, $this->stateFile, $this->metrics, $extraMeta, $level);
+        $this->agent->sendPayload($event, $message, $this->runId, $this->label, $this->stateFile, $this->metrics, $extraMeta, $level, $forceSend);
     }
 
     private function terminal(): void

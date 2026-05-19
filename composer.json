@@ -1,6 +1,6 @@
 {
   "name": "notilens/notilens",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "NotiLens — send alerts to NotiLens from PHP scripts, apps, and AI agents",
   "type": "library",
   "keywords": ["notilens", "notifications", "alerts", "monitoring", "cli", "ai-agent"],

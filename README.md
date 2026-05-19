@@ -116,6 +116,31 @@ notilens track order.placed "Order #1234" --name my-app
 
 ---
 
+## 4. force_send (CLI)
+
+By default NotiLens routes notifications through ML-based filtering. Use `--force_send true` to bypass ML and deliver immediately, or `--force_send false` to force ML routing even on high-signal commands.
+
+| Command | Default |
+|---------|---------|
+| `notilens notify` | `true` |
+| `notilens fail` | `true` |
+| `notilens timeout` | `true` |
+| `notilens terminate` | `true` |
+| `notilens input.required` | `true` |
+| `notilens output.generate` | `true` |
+| `notilens output.fail` | `true` |
+| Everything else | `false` |
+
+```bash
+# Override to route through ML
+notilens fail "Error" --name my-app --task email --force_send false
+
+# Override to bypass ML
+notilens progress "Critical step" --name my-app --task email --force_send true
+```
+
+---
+
 # SDK
 
 ## 1. Setup
@@ -234,6 +259,39 @@ $run->track('custom.event', 'Something happened');
 $run->track('custom.event', 'With meta', ['key' => 'value']);
 
 $nl->track('app.deployed', 'v2.3.1 deployed');
+```
+
+---
+
+## 7. force_send (SDK)
+
+By default NotiLens routes notifications through ML-based filtering. Pass `forceSend: true` to bypass ML and deliver immediately.
+
+| Method | Default |
+|--------|---------|
+| `notify()` | `true` |
+| `fail()` | `true` |
+| `timeout()` | `true` |
+| `terminate()` | `true` |
+| `inputRequired()` | `true` |
+| `outputGenerated()` | `true` |
+| `outputFailed()` | `true` |
+| Everything else | `false` |
+
+All methods accept `$forceSend` as an overridable parameter:
+
+```php
+// Override a default-true method to go through ML
+$run->fail('Error', false);
+$run->timeout('Slow', false);
+
+// Override a default-false method to bypass ML
+$run->progress('Critical step', true);
+$run->complete('Done', true);
+
+// Via named params for notify/track
+$nl->notify('low.priority', 'FYI', forceSend: false);
+$run->track('custom.event', 'msg', forceSend: true);
 ```
 
 ---
